@@ -22,11 +22,11 @@ android {
     }
   }
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
   }
   kotlinOptions {
-    jvmTarget = "1.8"
+    jvmTarget = "11"
   }
 }
 
@@ -63,7 +63,7 @@ afterEvaluate {
         from(components["release"])  // Publish the Android component (AAR)
         groupId = "com.github.hongkongkiwi"
         artifactId = "certificateutils"
-        version = "1.0.1"
+        version = "1.0.2"
       }
     }
   }
