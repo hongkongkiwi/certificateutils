@@ -35,6 +35,26 @@ Add the following to your `pom.xml`:
 </dependency>
 ```
 
+### Generating Documentation
+
+To generate the documentation in Markdown format, run the following command:
+
+```bash
+./gradlew dokkaGfm
+```
+
+This will generate the documentation in the `build/dokka-markdown` directory.
+
+### Viewing the Documentation
+
+After running the command, navigate to the `build/dokka-markdown` directory to view the generated documentation in Markdown format.
+
+```bash
+open build/dokka-markdown/index.md
+```
+
+The `index.md` file contains the documentation for your project. You can also navigate through the documentation for individual classes, functions, and properties.
+
 ## Usage
 
 ### PEM Parsing Extensions
