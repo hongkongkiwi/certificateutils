@@ -1,4 +1,5 @@
 plugins {
+  id("maven-publish")
   alias(libs.plugins.android.library)
   alias(libs.plugins.kotlin.android)
   alias(libs.plugins.dokka)
@@ -50,6 +51,20 @@ tasks.dokkaGfm {
     configureEach {
       sourceRoots.from(file("src/main/kotlin"))
       // Additional configuration, if necessary
+    }
+  }
+}
+
+// Maven publishing configuration for JitPack
+afterEvaluate {
+  publishing {
+    publications {
+      create<MavenPublication>("release") {
+        from(components["release"])  // Publish the Android component (AAR)
+        groupId = "com.github.hongkongkiwi"
+        artifactId = "certificateutils"
+        version = "1.0.1"
+      }
     }
   }
 }
