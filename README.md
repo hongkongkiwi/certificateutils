@@ -23,17 +23,11 @@ dependencies {
 }
 ```
 
-### Maven
+### Jitpack
 
-Add the following to your `pom.xml`:
+The easiest way to use the module is through Jitpack.
 
-```xml
-<dependency>
-    <groupId>com.github.hongkongkiwi</groupId>
-    <artifactId>certificateutils</artifactId>
-    <version>1.0.0</version>
-</dependency>
-```
+For setup instructions visit [Jitpack.io](https://jitpack.io/#hongkongkiwi/certificateutils)
 
 ## Generating Documentation
 
