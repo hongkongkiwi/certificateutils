@@ -15,21 +15,9 @@
 
 ## Installation
 
-### Gradle
-
-Add the following to your `build.gradle.kts`:
-
-```kotlin
-dependencies {
-    implementation("com.github.hongkongkiwi:certificateutils:1.0.0")
-}
-```
-
-### Jitpack
-
 The easiest way to use the module is through Jitpack.
 
-For setup instructions visit [Jitpack.io](https://jitpack.io/#hongkongkiwi/certificateutils)
+For setup instructions visit [Jitpack.io](https://jitpack.io/#hongkongkiwi/certificateutils) which includes code snippets to install into your project.
 
 ## Generating Documentation
 
