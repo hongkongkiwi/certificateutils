@@ -6,9 +6,9 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import com.github.hongkongkiwi.certificateutils.builders.CsrSubjectDNBuilder
 import kotlin.math.min
-import com.github.hongkongkiwi.exceptions.*
-import com.github.hongkongkiwi.builders.*
-import com.github.hongkongkiwi.enums.*
+import com.github.hongkongkiwi.certificateutils.exceptions.*
+import com.github.hongkongkiwi.certificateutils.builders.*
+import com.github.hongkongkiwi.certificateutils.enums.*
 import com.github.hongkongkiwi.certificateutils.enums.CryptographicAlgorithm
 import com.github.hongkongkiwi.certificateutils.enums.DigestAlgorithm
 import com.github.hongkongkiwi.certificateutils.enums.ECCurve

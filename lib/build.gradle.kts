@@ -63,7 +63,7 @@ afterEvaluate {
         from(components["release"])  // Publish the Android component (AAR)
         groupId = "com.github.hongkongkiwi"
         artifactId = "certificateutils"
-        version = "1.0.6"
+        version = "1.0.7"
       }
     }
   }
