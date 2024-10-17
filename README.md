@@ -35,7 +35,7 @@ Add the following to your `pom.xml`:
 </dependency>
 ```
 
-### Generating Documentation
+## Generating Documentation
 
 To generate the documentation in Markdown format, run the following command:
 
