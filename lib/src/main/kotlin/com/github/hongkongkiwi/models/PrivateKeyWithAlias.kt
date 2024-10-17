@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.models
+package com.github.hongkongkiwi.models
 
 import kotlinx.serialization.Serializable
 import java.security.PrivateKey

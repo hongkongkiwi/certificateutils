@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.enums
+package com.github.hongkongkiwi.enums
 
 /**
  * Enum representing the supported signature algorithms.

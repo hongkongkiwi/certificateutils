@@ -1,6 +1,6 @@
 package com.github.hongkongkiwi.serializers
 
-import com.github.hongkongkiwi.certificateutils.models.PrivateKeyWithAlias
+import com.github.hongkongkiwi.models.PrivateKeyWithAlias
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor

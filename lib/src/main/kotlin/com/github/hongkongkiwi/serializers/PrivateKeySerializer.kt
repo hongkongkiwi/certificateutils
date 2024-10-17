@@ -1,7 +1,7 @@
 package com.github.hongkongkiwi.serializers
 
-import com.github.hongkongkiwi.certificateutils.CertificateUtils
-import com.github.hongkongkiwi.certificateutils.extensions.isPrivateKeyPem
+import com.github.hongkongkiwi.CertificateUtils
+import com.github.hongkongkiwi.extensions.isPrivateKeyPem
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor

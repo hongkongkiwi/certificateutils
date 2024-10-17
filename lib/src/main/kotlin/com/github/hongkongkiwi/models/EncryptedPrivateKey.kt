@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.models
+package com.github.hongkongkiwi.models
 
 import java.security.PrivateKey
 import java.util.Objects

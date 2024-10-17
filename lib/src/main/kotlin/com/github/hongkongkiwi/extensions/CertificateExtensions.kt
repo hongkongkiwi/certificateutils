@@ -1,9 +1,10 @@
 @file:Suppress("unused")
 
-package com.github.hongkongkiwi.certificateutils.extensions
+package com.github.hongkongkiwi.extensions
 
-import com.github.hongkongkiwi.certificateutils.CertificateUtils
-import com.github.hongkongkiwi.certificateutils.enums.*
+import com.github.hongkongkiwi.CertificateUtils
+import com.github.hongkongkiwi.enums.DigestAlgorithm
+import com.github.hongkongkiwi.enums.ECCurve
 import org.bouncycastle.pkcs.PKCS10CertificationRequest
 import java.util.Base64
 import java.security.PrivateKey

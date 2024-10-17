@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.exceptions
+package com.github.hongkongkiwi.exceptions
 
 /**
  * Thrown when a certificate and a private key do not form a valid key pair.

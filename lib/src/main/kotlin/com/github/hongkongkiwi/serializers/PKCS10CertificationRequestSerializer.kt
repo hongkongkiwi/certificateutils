@@ -1,7 +1,7 @@
 package com.github.hongkongkiwi.serializers
 
-import com.github.hongkongkiwi.certificateutils.extensions.toPKCS10CertificationRequest
-import com.github.hongkongkiwi.certificateutils.extensions.toPem
+import com.github.hongkongkiwi.extensions.toPKCS10CertificationRequest
+import com.github.hongkongkiwi.extensions.toPem
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor

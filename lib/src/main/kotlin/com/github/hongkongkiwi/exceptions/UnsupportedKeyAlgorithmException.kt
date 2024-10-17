@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.exceptions
+package com.github.hongkongkiwi.exceptions
 
 /**
  * Thrown when a key algorithm is unsupported or unrecognized.

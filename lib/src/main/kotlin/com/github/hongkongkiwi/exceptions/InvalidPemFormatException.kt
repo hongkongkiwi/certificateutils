@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.exceptions
+package com.github.hongkongkiwi.exceptions
 
 /**
  * Exception thrown when a PEM string is invalid or cannot be parsed.

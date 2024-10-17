@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.exceptions
+package com.github.hongkongkiwi.exceptions
 
 /**
  * Thrown when a certificate is expected to be a Certificate Authority (CA) but is not.

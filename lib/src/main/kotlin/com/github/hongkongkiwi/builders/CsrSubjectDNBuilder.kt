@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.builders
+package com.github.hongkongkiwi.builders
 
 /**
  * Builder class for constructing a subject distinguished name (DN) string for an X.509 certificate.

@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.enums
+package com.github.hongkongkiwi.enums
 
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
 import org.bouncycastle.openssl.PKCS8Generator

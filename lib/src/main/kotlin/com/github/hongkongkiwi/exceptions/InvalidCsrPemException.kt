@@ -1,4 +1,4 @@
-package com.github.hongkongkiwi.certificateutils.exceptions
+package com.github.hongkongkiwi.exceptions
 
 /**
  * Thrown when a provided Certificate Signing Request (CSR) PEM string is invalid or cannot be parsed.
