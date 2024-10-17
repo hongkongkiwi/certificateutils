@@ -1,3 +1,5 @@
+[![Release](https://jitpack.io/v/hongkongkiwi/certificateutils.svg)](https://jitpack.io/#hongkongkiwi/certificateutils)
+
 # CertificateUtils
 
 **CertificateUtils** is a Kotlin utility library for managing cryptographic keys, certificates, and Certificate Signing Requests (CSRs). It provides extensions for handling PEM formats, public/private keys, X.509 certificates, and more.
