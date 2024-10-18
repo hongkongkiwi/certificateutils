@@ -22,8 +22,12 @@ object PKCS10CertificationRequestSerializer : KSerializer<PKCS10CertificationReq
   }
 
   override fun deserialize(decoder: Decoder): PKCS10CertificationRequest {
-    // Decode the PEM string back into a PKCS10CertificationRequest using CertificateUtils.
-    val pemString = decoder.decodeString()
-    return pemString.toPKCS10CertificationRequest()
+    try {
+      // Decode the PEM string back into a PKCS10CertificationRequest using CertificateUtils.
+      val pemString = decoder.decodeString()
+      return pemString.toPKCS10CertificationRequest()
+    } catch (e: Exception) {
+      throw IllegalArgumentException("Invalid PEM format for PKCS10CertificationRequest", e)
+    }
   }
 }

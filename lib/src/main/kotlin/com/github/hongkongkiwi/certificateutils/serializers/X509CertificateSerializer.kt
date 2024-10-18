@@ -1,5 +1,7 @@
 package com.github.hongkongkiwi.certificateutils.serializers
 
+import android.util.Log
+import com.github.hongkongkiwi.certificateutils.CertificateUtils
 import com.github.hongkongkiwi.certificateutils.extensions.toPem
 import com.github.hongkongkiwi.certificateutils.extensions.toX509Certificate
 import kotlinx.serialization.KSerializer
@@ -22,8 +24,12 @@ object X509CertificateSerializer : KSerializer<X509Certificate> {
   }
 
   override fun deserialize(decoder: Decoder): X509Certificate {
-    // Decode the PEM string back into an X509Certificate using CertificateUtils.
     val pemString = decoder.decodeString()
-    return pemString.toX509Certificate()
+    try {
+      val cert = pemString.toX509Certificate()
+      return cert
+    } catch (e: Exception) {
+      throw IllegalArgumentException("Invalid PEM format for X509Certificate", e)
+    }
   }
 }

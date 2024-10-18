@@ -13,12 +13,6 @@ enum class SignatureAlgorithm(val algorithm: String) {
   // SHA-1 with RSA algorithm (considered weak).
   SHA1_WITH_RSA("SHA1withRSA"),
 
-  // DSA with SHA-1 algorithm (considered weak).
-  DSA_WITH_SHA1("DSAwithSHA1"),
-
-  // DSA with SHA-256 algorithm.
-  DSA_WITH_SHA256("DSAwithSHA256"),
-
   // SHA-224 with ECDSA algorithm.
   SHA224_WITH_ECDSA("SHA224withECDSA"),
 
@@ -27,9 +21,6 @@ enum class SignatureAlgorithm(val algorithm: String) {
 
   // SHA-256 with ECDSA algorithm.
   SHA256_WITH_ECDSA("SHA256withECDSA"),
-
-  // SHA-256 with EdDSA (Edwards-curve Digital Signature Algorithm).
-  SHA256_WITH_EDDSA("SHA256withEdDSA"),
 
   // SHA-256 with RSA algorithm.
   SHA256_WITH_RSA("SHA256withRSA"),
@@ -44,10 +35,7 @@ enum class SignatureAlgorithm(val algorithm: String) {
   SHA512_WITH_ECDSA("SHA512withECDSA"),
 
   // SHA-512 with RSA algorithm.
-  SHA512_WITH_RSA("SHA512withRSA"),
-
-  // SHA-512 with EdDSA (Edwards-curve Digital Signature Algorithm).
-  SHA512_WITH_EDDSA("SHA512withEdDSA");
+  SHA512_WITH_RSA("SHA512withRSA");
 
   companion object {
     /**
@@ -57,17 +45,18 @@ enum class SignatureAlgorithm(val algorithm: String) {
      * @return The corresponding SignatureAlgorithm, or null if not found.
      */
     fun fromString(algorithm: String): SignatureAlgorithm? {
-      return values().find { it.algorithm.equals(algorithm, ignoreCase = true) }
+      return entries.find { it.algorithm.equals(algorithm, ignoreCase = true) }
     }
   }
 
   /**
-   * Returns the name of the signature algorithm in a more readable format.
+   * Returns the string representation of the signature algorithm.
    *
-   * @return The name of the algorithm as a String.
+   * This method provides the actual algorithm string (e.g., "SHA256withRSA").
+   *
+   * @return The algorithm string.
    */
   override fun toString(): String {
-    return this.name.replace("_", " ").replace("WITH", "with").replace("SHA", "SHA-")
-      .replace("EDDSA", "EdDSA")
+    return algorithm
   }
 }

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Log
 import com.github.hongkongkiwi.certificateutils.builders.CsrSubjectDNBuilder
 import kotlin.math.min
 import com.github.hongkongkiwi.certificateutils.exceptions.*
@@ -21,6 +22,8 @@ import com.github.hongkongkiwi.certificateutils.exceptions.InvalidPublicKeyPemEx
 import com.github.hongkongkiwi.certificateutils.exceptions.KeyPairMismatchException
 import com.github.hongkongkiwi.certificateutils.exceptions.UnsupportedKeyAlgorithmException
 import com.github.hongkongkiwi.certificateutils.exceptions.UntrustedCertificateException
+import com.github.hongkongkiwi.certificateutils.extensions.isFromAndroidKeyStore
+import com.github.hongkongkiwi.certificateutils.extensions.stripNonBase64Chars
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
@@ -57,12 +60,14 @@ import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder
 import java.io.StringReader
 import java.io.StringWriter
 import java.security.interfaces.DSAPrivateKey
+import java.security.interfaces.ECPublicKey
 import java.util.Locale
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 import javax.security.auth.x500.X500Principal
 import java.security.spec.ECParameterSpec
 import java.security.spec.ECPoint
+import javax.crypto.interfaces.DHPrivateKey
 
 @Suppress("unused", "MemberVisibilityCanBePrivate", "RemoveRedundantQualifierName")
 object CertificateUtils {
@@ -91,8 +96,8 @@ object CertificateUtils {
   val GENERIC_PRIVATE_KEY_MARKERS = Pair("-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----")
   val GENERIC_ENCRYPTED_PRIVATE_KEY_MARKERS = Pair("-----BEGIN ENCRYPTED PRIVATE KEY-----", "-----END ENCRYPTED PRIVATE KEY-----")
 
-  val ECDSA_PRIVATE_KEY_MARKERS = Pair("-----BEGIN EC PRIVATE KEY-----", "-----END EC PRIVATE KEY-----")
-  val ECDSA_ENCRYPTED_PRIVATE_KEY_MARKERS = Pair("-----BEGIN ENCRYPTED EC PRIVATE KEY-----", "-----END ENCRYPTED EC PRIVATE KEY-----")
+  val EC_PRIVATE_KEY_MARKERS = Pair("-----BEGIN EC PRIVATE KEY-----", "-----END EC PRIVATE KEY-----")
+  val EC_ENCRYPTED_PRIVATE_KEY_MARKERS = Pair("-----BEGIN ENCRYPTED EC PRIVATE KEY-----", "-----END ENCRYPTED EC PRIVATE KEY-----")
 
   val RSA_PRIVATE_KEY_MARKERS = Pair("-----BEGIN RSA PRIVATE KEY-----", "-----END RSA PRIVATE KEY-----")
   val RSA_ENCRYPTED_PRIVATE_KEY_MARKERS = Pair("-----BEGIN ENCRYPTED RSA PRIVATE KEY-----", "-----END ENCRYPTED RSA PRIVATE KEY-----")
@@ -114,7 +119,7 @@ object CertificateUtils {
 
   // Public key markers
   val RSA_PUBLIC_KEY_MARKERS = Pair("-----BEGIN RSA PUBLIC KEY-----", "-----END RSA PUBLIC KEY-----")
-  val ECDSA_PUBLIC_KEY_MARKERS = Pair("-----BEGIN EC PUBLIC KEY-----", "-----END EC PUBLIC KEY-----")
+  val EC_PUBLIC_KEY_MARKERS = Pair("-----BEGIN EC PUBLIC KEY-----", "-----END EC PUBLIC KEY-----")
   val DSA_PUBLIC_KEY_MARKERS = Pair("-----BEGIN DSA PUBLIC KEY-----", "-----END DSA PUBLIC KEY-----")
   val ED25519_PUBLIC_KEY_MARKERS = Pair("-----BEGIN ED25519 PUBLIC KEY-----", "-----END ED25519 PUBLIC KEY-----")
   val ED448_PUBLIC_KEY_MARKERS = Pair("-----BEGIN ED448 PUBLIC KEY-----", "-----END ED448 PUBLIC KEY-----")
@@ -130,7 +135,7 @@ object CertificateUtils {
   // Key markers
   val PRIVATE_KEY_MARKERS = listOf(
     GENERIC_PRIVATE_KEY_MARKERS,
-    ECDSA_PRIVATE_KEY_MARKERS,
+    EC_PRIVATE_KEY_MARKERS,
     RSA_PRIVATE_KEY_MARKERS,
     DSA_PRIVATE_KEY_MARKERS,
     ED25519_PRIVATE_KEY_MARKERS,
@@ -142,7 +147,7 @@ object CertificateUtils {
   // Encrypted Key markers
   val ENCRYPTED_PRIVATE_KEY_MARKERS = listOf(
     GENERIC_ENCRYPTED_PRIVATE_KEY_MARKERS,
-    ECDSA_ENCRYPTED_PRIVATE_KEY_MARKERS,
+    EC_ENCRYPTED_PRIVATE_KEY_MARKERS,
     RSA_ENCRYPTED_PRIVATE_KEY_MARKERS,
     DSA_ENCRYPTED_PRIVATE_KEY_MARKERS,
     ED25519_ENCRYPTED_PRIVATE_KEY_MARKERS,
@@ -154,7 +159,7 @@ object CertificateUtils {
   // Public Key markers
   val PUBLIC_KEY_MARKERS = listOf(
     RSA_PUBLIC_KEY_MARKERS,
-    ECDSA_PUBLIC_KEY_MARKERS,
+    EC_PUBLIC_KEY_MARKERS,
     DSA_PUBLIC_KEY_MARKERS,
     ED25519_PUBLIC_KEY_MARKERS,
     ED448_PUBLIC_KEY_MARKERS,
@@ -199,7 +204,7 @@ object CertificateUtils {
   )
   fun parseCertificatePem(
     certificatePem: String,
-    allowExpired: Boolean = false
+    allowExpired: Boolean = true
   ): List<X509Certificate> {
     // Validate that the provided certificate PEM string is not empty
     require(certificatePem.isNotEmpty()) { "Certificate PEM cannot be empty." }
@@ -307,11 +312,16 @@ object CertificateUtils {
     try {
       val reader = StringReader(privateKeyPem)
       val pemParser = PEMParser(reader)
-      val converter = JcaPEMKeyConverter().setProvider(BouncyCastleProvider())
+      val converter = JcaPEMKeyConverter()
+        // Must set provider here to support various key types
+        .setProvider(BouncyCastleProvider())
 
       var obj: Any?
       while (true) {
         obj = pemParser.readObject() ?: break
+
+        // Debug: Print the type of object read from the PEM
+        println("Parsed object type: ${obj::class.java.name}")
 
         // Handle encrypted keys
         when (obj) {
@@ -325,16 +335,23 @@ object CertificateUtils {
           }
           // Handle unencrypted PEM keys
           is PEMKeyPair -> privateKeys.add(converter.getKeyPair(obj).private)
-          is PrivateKeyInfo -> privateKeys.add(converter.getPrivateKey(obj))
+          is PrivateKeyInfo -> {
+            try {
+              privateKeys.add(converter.getPrivateKey(obj))
+            } catch (e: Exception) {
+              throw InvalidPrivateKeyPemException("Failed to convert PrivateKeyInfo to PrivateKey: ${e.message}.", e)
+            }
+          }
           else -> throw InvalidPrivateKeyPemException("Unsupported key format or invalid key content.")
         }
       }
     } catch (e: Exception) {
-      throw InvalidPrivateKeyPemException("Failed to parse private key.", e)
+      throw InvalidPrivateKeyPemException("Failed to parse private key: ${e.message}.", e)
     }
 
     return privateKeys
   }
+
 
   /**
    * Parses PEM-formatted public keys.
@@ -353,7 +370,7 @@ object CertificateUtils {
     try {
       val reader = StringReader(publicKeyPem)
       val pemParser = PEMParser(reader)
-      val converter = JcaPEMKeyConverter().setProvider(BouncyCastleProvider())
+      val converter = JcaPEMKeyConverter()
 
       var obj: Any?
       while (true) {
@@ -485,7 +502,6 @@ object CertificateUtils {
       // Configure the encryptor with the selected encryption algorithm
       val encryptorBuilder = JceOpenSSLPKCS8EncryptorBuilder(encryptionAlgorithm.oid)
         .setPassword(passphrase)
-        .setProvider(BouncyCastleProvider())
       val encryptor: OutputEncryptor = encryptorBuilder.build()
 
       // Create the PKCS#8 EncryptedPrivateKeyInfo generator
@@ -711,7 +727,8 @@ object CertificateUtils {
   )
   fun createCsr(
     privateKey: PrivateKey,
-    subjectDN: String
+    subjectDN: String,
+    signatureAlgorithm: String = "SHA256",
   ): PKCS10CertificationRequest {
     require(subjectDN.isNotEmpty()) { "Subject DN cannot be empty." }
 
@@ -722,15 +739,21 @@ object CertificateUtils {
 
     return try {
       val csrBuilder = JcaPKCS10CertificationRequestBuilder(subject, keyPair.public)
-      val signer: ContentSigner = JcaContentSignerBuilder("SHA256with${privateKey.algorithm}")
-        .setProvider(BouncyCastleProvider())
+      val guessedSigAlgoName = if (CryptographicAlgorithm.EC.matches(privateKey.algorithm)) {
+        "${signatureAlgorithm}withECDSA"
+      } else {
+        "${signatureAlgorithm}with${privateKey.algorithm}"
+      }
+      val sigAlgoName = SignatureAlgorithm.fromString(guessedSigAlgoName)
+      requireNotNull(sigAlgoName) { "Unsupported signature algorithm: $signatureAlgorithm" }
+      val signer: ContentSigner = JcaContentSignerBuilder(sigAlgoName.toString())
         .build(privateKey)
 
       csrBuilder.build(signer)
     } catch (e: OperatorCreationException) {
-      throw InvalidPrivateKeyPemException("Failed to create content signer.", e)
+      throw InvalidPrivateKeyPemException("Failed to create content signer: ${e.message}.", e)
     } catch (e: IOException) {
-      throw InvalidPrivateKeyPemException("Failed to encode CSR.", e)
+      throw InvalidPrivateKeyPemException("Failed to encode CSR: ${e.message}.", e)
     }
   }
 
@@ -754,7 +777,7 @@ object CertificateUtils {
     require(keySize in 1024..4096) { "RSA key size must be between 1024 and 4096 bits." }
     require(keySize % 8 == 0) { "RSA key size must be a multiple of 8." }
 
-    if (keystoreAlias != null) {
+    return if (keystoreAlias != null) {
       // Generate key in Android Keystore
       val keyPairGenerator = KeyPairGenerator.getInstance("RSA", "AndroidKeyStore")
       val keyGenParameterSpec = KeyGenParameterSpec.Builder(
@@ -769,13 +792,13 @@ object CertificateUtils {
 
       keyPairGenerator.initialize(keyGenParameterSpec)
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     } else {
       // Generate a normal RSA private key
       val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
       keyPairGenerator.initialize(keySize, SecureRandom())
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     }
   }
 
@@ -796,7 +819,7 @@ object CertificateUtils {
     keystoreAlias: String? = null,
     keyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
   ): PrivateKey {
-    if (keystoreAlias != null) {
+    return if (!keystoreAlias.isNullOrBlank()) {
       // Generate key in Android Keystore
       val keyPairGenerator = KeyPairGenerator.getInstance("EC", "AndroidKeyStore")
       val keyGenParameterSpec = KeyGenParameterSpec.Builder(
@@ -809,14 +832,14 @@ object CertificateUtils {
 
       keyPairGenerator.initialize(keyGenParameterSpec)
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     } else {
       // Generate a normal EC private key
       val keyPairGenerator = KeyPairGenerator.getInstance("EC")
       val ecSpec = ECGenParameterSpec(ecCurve.toString())
       keyPairGenerator.initialize(ecSpec, SecureRandom())
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     }
   }
 
@@ -840,7 +863,7 @@ object CertificateUtils {
     require(keySize in 1024..3072) { "DSA key size must be between 1024 and 3072 bits." }
     require(keySize % 64 == 0) { "DSA key size must be a multiple of 64." }
 
-    if (keystoreAlias != null) {
+    return if (keystoreAlias != null) {
       // Generate key in Android Keystore
       val keyPairGenerator = KeyPairGenerator.getInstance("DSA", "AndroidKeyStore")
       val keyGenParameterSpec = KeyGenParameterSpec.Builder(
@@ -853,13 +876,13 @@ object CertificateUtils {
 
       keyPairGenerator.initialize(keyGenParameterSpec)
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     } else {
       // Generate a normal DSA private key
       val keyPairGenerator = KeyPairGenerator.getInstance("DSA")
       keyPairGenerator.initialize(keySize, SecureRandom())
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     }
   }
 
@@ -878,7 +901,7 @@ object CertificateUtils {
     keystoreAlias: String? = null,
     keyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
   ): PrivateKey {
-    if (keystoreAlias != null) {
+    return if (keystoreAlias != null) {
       // Generate key in Android Keystore
       val keyPairGenerator = KeyPairGenerator.getInstance("Ed25519", "AndroidKeyStore")
       val keyGenParameterSpec = KeyGenParameterSpec.Builder(
@@ -889,12 +912,12 @@ object CertificateUtils {
 
       keyPairGenerator.initialize(keyGenParameterSpec)
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     } else {
       // Generate a normal Ed25519 private key
       val keyPairGenerator = KeyPairGenerator.getInstance("Ed25519")
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     }
   }
 
@@ -913,7 +936,7 @@ object CertificateUtils {
     keystoreAlias: String? = null,
     keyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
   ): PrivateKey {
-    if (keystoreAlias != null) {
+    return if (keystoreAlias != null) {
       // Generate key in Android Keystore
       val keyPairGenerator = KeyPairGenerator.getInstance("Ed448", "AndroidKeyStore")
       val keyGenParameterSpec = KeyGenParameterSpec.Builder(
@@ -924,12 +947,12 @@ object CertificateUtils {
 
       keyPairGenerator.initialize(keyGenParameterSpec)
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     } else {
       // Generate a normal Ed448 private key
       val keyPairGenerator = KeyPairGenerator.getInstance("Ed448")
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     }
   }
 
@@ -949,7 +972,7 @@ object CertificateUtils {
     keystoreAlias: String? = null,
     keyPurposes: Int = KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
   ): PrivateKey {
-    if (keystoreAlias != null) {
+    return if (keystoreAlias != null) {
       // Generate key in Android Keystore
       val keyPairGenerator = KeyPairGenerator.getInstance("X25519", "AndroidKeyStore")
       val keyGenParameterSpec = KeyGenParameterSpec.Builder(
@@ -960,12 +983,12 @@ object CertificateUtils {
 
       keyPairGenerator.initialize(keyGenParameterSpec)
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     } else {
       // Generate a normal X25519 private key
       val keyPairGenerator = KeyPairGenerator.getInstance("X25519")
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     }
   }
 
@@ -990,7 +1013,7 @@ object CertificateUtils {
     require(keySize in 512..2048) { "DH key size must be between 512 and 2048." }
     require(keySize % 64 == 0) { "DH key size must be a multiple of 64." }
 
-    if (keystoreAlias != null) {
+    return if (keystoreAlias != null) {
       // Generate key in Android Keystore
       val keyPairGenerator = KeyPairGenerator.getInstance("DH", "AndroidKeyStore")
       val keyGenParameterSpecBuilder = KeyGenParameterSpec.Builder(
@@ -1008,40 +1031,53 @@ object CertificateUtils {
 
       keyPairGenerator.initialize(keyGenParameterSpec)
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     } else {
       // Generate a normal DH private key
       val keyPairGenerator = KeyPairGenerator.getInstance("DH")
       keyPairGenerator.initialize(keySize, SecureRandom())
       val keyPair = keyPairGenerator.generateKeyPair()
-      return keyPair.private
+      keyPair.private
     }
   }
 
   /**
-  * Gets the public key corresponding to the provided private key.
-  *
-  * @param privateKey The private key for which to get the public key.
-  * @return The generated public key.
-  * @throws UnsupportedKeyAlgorithmException If the key algorithm is unsupported.
-  */
+   * Gets the public key corresponding to the provided private key.
+   *
+   * @param privateKey The private key for which to get the public key.
+   * @return The generated public key.
+   * @throws UnsupportedKeyAlgorithmException If the key algorithm is unsupported.
+   */
   @SuppressLint("ObsoleteSdkInt")
   fun getPublicKey(privateKey: PrivateKey): PublicKey {
-    return when (privateKey) {
-      is RSAPrivateKey -> getRSAPublicKey(privateKey)
-      is ECPrivateKey -> getECDSAPublicKey(privateKey)
-      is DSAPrivateKey -> getDSAPublicKey(privateKey)
-      else -> {
-        // Use reflection for EdECPrivateKey and XECPrivateKey to avoid direct reference on unsupported versions
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) { // Android SDK 30 (R) and above
-          when (privateKey.algorithm) {
-            CryptographicAlgorithm.Ed25519.toString(), CryptographicAlgorithm.Ed448.toString() -> getEdPublicKey(privateKey)
-            CryptographicAlgorithm.X25519.toString() -> getXECKeyPair(CryptographicAlgorithm.X25519)?.public ?: throw UnsupportedKeyAlgorithmException("X25519 key pair generation failed.")
-            else -> throw UnsupportedKeyAlgorithmException("Unsupported key algorithm: ${privateKey.algorithm}")
-          }
-        } else {
-          throw UnsupportedKeyAlgorithmException("${privateKey.algorithm} is not supported on this Android version")
+    return when (privateKey.algorithm) {
+      CryptographicAlgorithm.RSA.name -> getRSAPublicKey(privateKey)
+      CryptographicAlgorithm.EC.name -> getECPublicKey(privateKey)
+      CryptographicAlgorithm.DSA.name -> getDSAPublicKey(privateKey)
+      CryptographicAlgorithm.Ed25519.name -> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+          throw UnsupportedKeyAlgorithmException("Ed25519 is not supported on this Android version.")
         }
+        getEdPublicKey(privateKey)
+      }
+      CryptographicAlgorithm.Ed448.name -> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+          throw UnsupportedKeyAlgorithmException("Ed448 is not supported on this Android version.")
+        }
+        getEdPublicKey(privateKey)
+      }
+      CryptographicAlgorithm.X25519.name -> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+          throw UnsupportedKeyAlgorithmException("X25519 is not supported on this Android version.")
+        }
+        getXECKeyPair(CryptographicAlgorithm.X25519)?.public
+          ?: throw UnsupportedKeyAlgorithmException("X25519 key pair generation failed.")
+      }
+      CryptographicAlgorithm.DH.name -> getDHPublicKey(privateKey)
+      CryptographicAlgorithm.ECDSA.name -> getECPublicKey(privateKey) // ECDSA is based on EC
+      else -> {
+        // Handle unsupported algorithms for lower Android versions
+        throw UnsupportedKeyAlgorithmException("${privateKey.algorithm} is not supported on this Android version.")
       }
     }
   }
@@ -1271,7 +1307,6 @@ object CertificateUtils {
   private fun verifyCsrSignature(csr: PKCS10CertificationRequest, publicKey: PublicKey): Boolean {
     return try {
       val signer = JcaContentVerifierProviderBuilder()
-        .setProvider(BouncyCastleProvider())
         .build(publicKey)
 
       csr.isSignatureValid(signer)
@@ -1402,25 +1437,31 @@ object CertificateUtils {
    *
    * @param privateKey The EC private key.
    * @return The public key point (ECPoint).
+   * @throws IllegalArgumentException if the provided key is not an EC private key.
    */
   private fun getECPublicKeyPoint(privateKey: PrivateKey): ECPoint {
-    require(privateKey is ECPrivateKey) { "Provided key is not an ECPrivateKey." }
+    val algorithm = CryptographicAlgorithm.fromString(privateKey.algorithm)
+    // Ensure that the provided key is indeed an ECPrivateKey
+    require(algorithm == CryptographicAlgorithm.EC) { "Provided key is not an ECPrivateKey." }
+    if (privateKey !is ECPrivateKey) {
+      throw IllegalArgumentException("Provided key must be an ECPrivateKey")
+    }
 
     // Get the EC parameter spec associated with the private key
     val ecSpec: ECParameterSpec = privateKey.params
 
-    // Use KeyPairGenerator to derive the public key from the private key
+    // Create a KeyPairGenerator to derive the public key from the private key
     val keyPairGenerator = KeyPairGenerator.getInstance("EC")
     keyPairGenerator.initialize(ecSpec)
 
-    // Generate a key pair
+    // Generate a key pair (not strictly necessary if we just want the public key point)
     val keyPair = keyPairGenerator.generateKeyPair()
 
-    // The public key is derived from the private key's parameters
-    val publicKey: PublicKey = keyPair.public
+    // Get the public key point from the ECPrivateKey
+    val publicKey: ECPublicKey = keyPair.public as ECPublicKey
 
-    // Cast to ECPoint
-    return (publicKey as java.security.interfaces.ECPublicKey).w
+    // Return the public key point (ECPoint)
+    return publicKey.w
   }
 
   /**
@@ -1433,7 +1474,8 @@ object CertificateUtils {
    * @throws IllegalArgumentException If the provided private key is null or not of a valid EdDSA algorithm.
    */
   private fun getEdPublicKeyUsingReflection(privateKey: PrivateKey): PublicKey {
-    require(privateKey.algorithm == "Ed25519" || privateKey.algorithm == "Ed448") {
+    val algorithm = CryptographicAlgorithm.fromString(privateKey.algorithm)
+    require(algorithm == CryptographicAlgorithm.Ed25519 || algorithm == CryptographicAlgorithm.Ed448) {
       "Provided key must be of algorithm Ed25519 or Ed448."
     }
 
@@ -1525,7 +1567,10 @@ object CertificateUtils {
       // Process each match found
       for (match in matches) {
         // Get the extracted content and trim any whitespace
-        val content = match.groupValues[1].trim()
+        val content = match.groupValues[1].trim().stripNonBase64Chars()
+        if (content.isEmpty()) {
+          continue
+        }
         // Add the found markers and the content as a pair to the list
         extractedContents.add(Pair(Pair(begin, end), content))
       }
@@ -1574,75 +1619,6 @@ object CertificateUtils {
 
     // Generate the PKCS#8 encoded format
     return privateKey.encoded // PKCS#8 format is usually obtained from the private key
-  }
-
-  /**
-   * Gets the public key for DSA algorithms.
-   *
-   * @param privateKey The DSA private key.
-   * @return The generated public key.
-   * @throws UnsupportedKeyAlgorithmException If the DSA algorithm is unsupported.
-   */
-  private fun getDSAPublicKey(privateKey: DSAPrivateKey): PublicKey {
-    // Get the parameters for the DSA private key
-    val params = privateKey.params
-    val g = params.g  // Generator
-    val p = params.p  // Prime modulus
-    val q = params.q  // Subgroup prime
-    val x = privateKey.x // Private key value
-
-    // Calculate the public key value: y = g^x mod p
-    val y = g.modPow(x, p)
-
-    // Create the public key specification with all required parameters
-    val publicKeySpec = DSAPublicKeySpec(y, p, q, g)
-
-    // Generate and return the public key
-    val keyFactory = KeyFactory.getInstance("DSA")
-    return keyFactory.generatePublic(publicKeySpec)
-  }
-
-  /**
-   * Gets the public key for EC algorithms.
-   *
-   * @param privateKey The EC private key.
-   * @return The generated public key.
-   * @throws UnsupportedKeyAlgorithmException If the EC algorithm is unsupported.
-   */
-  private fun getECDSAPublicKey(privateKey: ECPrivateKey): PublicKey {
-    // Use the ECPrivateKey to derive the public key
-    val keyFactory = KeyFactory.getInstance("EC")
-    val publicKeyPoint = getECPublicKeyPoint(privateKey) // Implement this function
-    val publicKeySpec = ECPublicKeySpec(publicKeyPoint, privateKey.params)
-    return keyFactory.generatePublic(publicKeySpec)
-  }
-
-  /**
-   * Gets the public key for RSA algorithms.
-   *
-   * @param privateKey The RSA private key.
-   * @return The generated public key.
-   * @throws UnsupportedKeyAlgorithmException If the RSA algorithm is unsupported.
-   */
-  private fun getRSAPublicKey(privateKey: RSAPrivateKey): PublicKey {
-    val keyFactory = KeyFactory.getInstance("RSA")
-    val publicKeySpec = RSAPublicKeySpec(privateKey.modulus, BigInteger.valueOf(65537))
-    return keyFactory.generatePublic(publicKeySpec)
-  }
-
-  /**
-   * Gets the public key for EdDSA algorithms (Ed25519 and Ed448) using reflection.
-   * This method avoids directly referencing classes that may not be available in lower SDK versions.
-   */
-  private fun getEdPublicKey(privateKey: PrivateKey): PublicKey {
-    return try {
-      val keyPairGeneratorClass = Class.forName("java.security.KeyPairGenerator")
-      val keyPairGenerator = keyPairGeneratorClass.getMethod("getInstance", String::class.java).invoke(null, privateKey.algorithm)
-      val keyPair = keyPairGeneratorClass.getMethod("generateKeyPair").invoke(keyPairGenerator) as KeyPair
-      keyPair.public
-    } catch (e: Exception) {
-      throw UnsupportedKeyAlgorithmException("Failed to generate EdDSA public key for ${privateKey.algorithm}", e)
-    }
   }
 
   /**
@@ -1703,13 +1679,13 @@ object CertificateUtils {
       // Use the Algorithm enum to map the private key algorithm to the corresponding PEM markers
       when (CryptographicAlgorithm.fromString(privateKey.algorithm)) {
         CryptographicAlgorithm.RSA -> RSA_PRIVATE_KEY_MARKERS
-        CryptographicAlgorithm.EC -> ECDSA_PRIVATE_KEY_MARKERS
+        CryptographicAlgorithm.EC -> EC_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.DSA -> DSA_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.Ed25519 -> ED25519_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.Ed448 -> ED448_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.X25519 -> X25519_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.DH -> DH_PRIVATE_KEY_MARKERS
-        CryptographicAlgorithm.ECDSA -> ECDSA_PRIVATE_KEY_MARKERS // ECDSA uses EC PEM markers
+        CryptographicAlgorithm.ECDSA -> EC_PRIVATE_KEY_MARKERS // ECDSA uses EC PEM markers
       }
     } catch (e: IllegalArgumentException) {
       // Handle unsupported algorithm by returning generic markers or throwing an exception
@@ -1733,13 +1709,13 @@ object CertificateUtils {
       // Use the Algorithm enum to map the private key algorithm to the corresponding PEM markers
       when (CryptographicAlgorithm.fromString(publicKey.algorithm)) {
         CryptographicAlgorithm.RSA -> RSA_PUBLIC_KEY_MARKERS
-        CryptographicAlgorithm.EC -> ECDSA_PUBLIC_KEY_MARKERS
+        CryptographicAlgorithm.EC -> EC_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.DSA -> DSA_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.Ed25519 -> ED25519_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.Ed448 -> ED448_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.X25519 -> X25519_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.DH -> DH_PUBLIC_KEY_MARKERS
-        CryptographicAlgorithm.ECDSA -> ECDSA_PUBLIC_KEY_MARKERS // ECDSA uses EC PEM markers
+        CryptographicAlgorithm.ECDSA -> EC_PUBLIC_KEY_MARKERS // ECDSA uses EC PEM markers
       }
     } catch (e: IllegalArgumentException) {
       // Handle unsupported algorithm by returning generic markers or throwing an exception
@@ -1761,6 +1737,223 @@ object CertificateUtils {
       keyPairGeneratorClass.getMethod("generateKeyPair").invoke(keyPairGenerator) as KeyPair
     } catch (e: Exception) {
       throw UnsupportedKeyAlgorithmException("Failed to generate XEC public key for $algorithm", e)
+    }
+  }
+
+  /**
+   * Retrieves the public key from a given KeyPair or DHPrivateKey.
+   *
+   * @param keyPair The KeyPair containing the DH public and private keys.
+   * @return The DH public key.
+   * @throws IllegalArgumentException if the KeyPair does not contain a DH public key.
+   */
+  private fun getDHPublicKey(keyPair: KeyPair): PublicKey {
+    val publicKey = keyPair.public
+    val algorithm = CryptographicAlgorithm.fromString(publicKey.algorithm)
+    if (algorithm == CryptographicAlgorithm.DH) {
+      return publicKey
+    } else {
+      throw IllegalArgumentException("The provided KeyPair does not contain a valid DH public key.")
+    }
+  }
+
+  /**
+   * Retrieves the public key from a given DHPrivateKey.
+   *
+   * @param privateKey The DHPrivateKey to extract the public key from.
+   * @return The DH public key.
+   * @throws IllegalArgumentException if the provided key is not a DH private key.
+   */
+  private fun getDHPublicKey(privateKey: PrivateKey): PublicKey {
+    // Check if the provided key is from the Android Keystore
+    if (privateKey.isFromAndroidKeyStore()) {
+      // Load the Android Keystore
+      val keyStore = KeyStore.getInstance("AndroidKeyStore")
+      keyStore.load(null) // Load the KeyStore
+
+      // Search for the corresponding key entry by iterating through the aliases
+      for (alias in keyStore.aliases()) {
+        val keyEntry = keyStore.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
+        if (keyEntry != null && keyEntry.privateKey == privateKey) {
+          // Retrieve the public key from the certificate associated with the key entry
+          return keyEntry.certificate.publicKey
+        }
+      }
+      throw IllegalArgumentException("No public key found for the provided Android Keystore private key.")
+    }
+
+    // Check if the provided key is indeed a DHPrivateKey
+    if (privateKey !is DHPrivateKey) {
+      throw IllegalArgumentException("Provided key must be a DHPrivateKey")
+    }
+
+    // Get the DH parameters from the private key
+    val dhParams = privateKey.params
+
+    // Generate the public key from the private key using the same parameters
+    val keyPairGenerator = KeyPairGenerator.getInstance("DH")
+    keyPairGenerator.initialize(dhParams)
+
+    // Generate a new KeyPair and return the public key
+    return keyPairGenerator.generateKeyPair().public
+  }
+
+  /**
+   * Gets the public key for DSA algorithms.
+   *
+   * @param privateKey The DSA private key.
+   * @return The generated public key.
+   * @throws IllegalArgumentException If the provided key is not a DSAPrivateKey.
+   */
+  private fun getDSAPublicKey(privateKey: PrivateKey): PublicKey {
+    // Check if the provided key is from the Android Keystore
+    if (privateKey.isFromAndroidKeyStore()) {
+      // Load the Android Keystore
+      val keyStore = KeyStore.getInstance("AndroidKeyStore")
+      keyStore.load(null) // Load the KeyStore
+
+      // Search for the corresponding key entry by iterating through the aliases
+      for (alias in keyStore.aliases()) {
+        val keyEntry = keyStore.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
+        if (keyEntry != null && keyEntry.privateKey == privateKey) {
+          // Retrieve the public key from the certificate associated with the key entry
+          return keyEntry.certificate.publicKey
+        }
+      }
+      throw IllegalArgumentException("No public key found for the provided Android Keystore private key.")
+    }
+
+    // Check if the provided key is indeed a DSAPrivateKey
+    if (privateKey !is DSAPrivateKey) {
+      throw IllegalArgumentException("Provided key must be a DSAPrivateKey")
+    }
+
+    // Get the parameters for the DSA private key
+    val params = privateKey.params
+    val g = params.g  // Generator
+    val p = params.p  // Prime modulus
+    val q = params.q  // Subgroup prime
+    val x = privateKey.x // Private key value
+
+    // Calculate the public key value: y = g^x mod p
+    val y = g.modPow(x, p)
+
+    // Create the public key specification with all required parameters
+    val publicKeySpec = DSAPublicKeySpec(y, p, q, g)
+
+    // Generate and return the public key
+    val keyFactory = KeyFactory.getInstance("DSA")
+    return keyFactory.generatePublic(publicKeySpec)
+  }
+
+  /**
+   * Retrieves the public key from a given ECPrivateKey.
+   *
+   * @param privateKey The ECPrivateKey to extract the public key from.
+   * @return The corresponding EC public key.
+   * @throws IllegalArgumentException if the provided key is not an ECPrivateKey.
+   */
+  private fun getECPublicKey(privateKey: PrivateKey): PublicKey {
+    if (privateKey.isFromAndroidKeyStore()) {
+      // Handle case for Android Keystore
+      val keyStore = KeyStore.getInstance("AndroidKeyStore")
+      keyStore.load(null) // Load the Android Keystore
+
+      // Search for the corresponding key entry by iterating through the aliases
+      for (alias in keyStore.aliases()) {
+        val keyEntry = keyStore.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
+        if (keyEntry != null && keyEntry.privateKey == privateKey) {
+          // Retrieve the public key from the certificate associated with the key entry
+          return keyEntry.certificate.publicKey
+        }
+      }
+      throw IllegalArgumentException("No public key found for the provided Android keystore private key.")
+    } else {
+      // Check if the provided key is indeed an ECPrivateKey
+      if (privateKey !is ECPrivateKey) {
+        throw IllegalArgumentException("Provided key must be an ECPrivateKey")
+      }
+
+      // Use the ECPrivateKey to derive the public key
+      val keyFactory = KeyFactory.getInstance("EC")
+      val publicKeyPoint = getECPublicKeyPoint(privateKey) // Implement this function
+      val publicKeySpec = ECPublicKeySpec(publicKeyPoint, privateKey.params)
+
+      return keyFactory.generatePublic(publicKeySpec)
+    }
+  }
+
+  /**
+   * Gets the public key for RSA algorithms.
+   *
+   * @param privateKey The RSA private key.
+   * @return The generated public key.
+   * @throws IllegalArgumentException If the provided key is not an RSAPrivateKey.
+   * @throws UnsupportedKeyAlgorithmException If the RSA algorithm is unsupported.
+   */
+  private fun getRSAPublicKey(privateKey: PrivateKey): PublicKey {
+    // Check if the provided key is from the Android Keystore
+    if (privateKey.isFromAndroidKeyStore()) {
+      // Load the Android Keystore
+      val keyStore = KeyStore.getInstance("AndroidKeyStore")
+      keyStore.load(null) // Load the KeyStore
+
+      // Search for the corresponding key entry by iterating through the aliases
+      for (alias in keyStore.aliases()) {
+        val keyEntry = keyStore.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
+        if (keyEntry != null && keyEntry.privateKey == privateKey) {
+          // Retrieve the public key from the certificate associated with the key entry
+          return keyEntry.certificate.publicKey
+        }
+      }
+      throw IllegalArgumentException("No public key found for the provided Android Keystore private key.")
+    }
+
+    // Check if the provided key is indeed an RSAPrivateKey
+    if (privateKey !is RSAPrivateKey) {
+      throw IllegalArgumentException("Provided key must be an RSAPrivateKey")
+    }
+
+    // Use the RSA private key to derive the public key
+    val keyFactory = KeyFactory.getInstance("RSA")
+    val publicKeySpec = RSAPublicKeySpec(privateKey.modulus, BigInteger.valueOf(65537))
+    return keyFactory.generatePublic(publicKeySpec)
+  }
+
+  /**
+   * Gets the public key for EdDSA algorithms (Ed25519 and Ed448) using reflection.
+   * This method avoids directly referencing classes that may not be available in lower SDK versions.
+   *
+   * @param privateKey The EdDSA private key.
+   * @return The corresponding public key.
+   * @throws UnsupportedKeyAlgorithmException If the algorithm is unsupported.
+   */
+  private fun getEdPublicKey(privateKey: PrivateKey): PublicKey {
+    // Check if the provided key is from the Android Keystore
+    if (privateKey.isFromAndroidKeyStore()) {
+      // Load the Android Keystore
+      val keyStore = KeyStore.getInstance("AndroidKeyStore")
+      keyStore.load(null) // Load the KeyStore
+
+      // Search for the corresponding key entry by iterating through the aliases
+      for (alias in keyStore.aliases()) {
+        val keyEntry = keyStore.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
+        if (keyEntry != null && keyEntry.privateKey == privateKey) {
+          // Retrieve the public key from the certificate associated with the key entry
+          return keyEntry.certificate.publicKey
+        }
+      }
+      throw IllegalArgumentException("No public key found for the provided Android Keystore private key.")
+    }
+
+    // If not from the Android Keystore, proceed to generate the public key using reflection
+    return try {
+      val keyPairGeneratorClass = Class.forName("java.security.KeyPairGenerator")
+      val keyPairGenerator = keyPairGeneratorClass.getMethod("getInstance", String::class.java).invoke(null, privateKey.algorithm)
+      val keyPair = keyPairGeneratorClass.getMethod("generateKeyPair").invoke(keyPairGenerator) as KeyPair
+      keyPair.public
+    } catch (e: Exception) {
+      throw UnsupportedKeyAlgorithmException("Failed to generate EdDSA public key for ${privateKey.algorithm}", e)
     }
   }
 }

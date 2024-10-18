@@ -1,5 +1,7 @@
 package com.github.hongkongkiwi.certificateutils.models
 
+import com.github.hongkongkiwi.certificateutils.enums.CryptographicAlgorithm
+import com.github.hongkongkiwi.certificateutils.enums.ECCurve
 import kotlinx.serialization.Serializable
 import java.security.PrivateKey
 import java.util.Objects
@@ -12,9 +14,9 @@ import java.util.Objects
  * @property wrappedKey The actual PrivateKey that this class wraps.
  */
 @Serializable
-class PrivateKeyWithAlias(
+class WrappedPrivateKey(
   val alias: String?,
-  private val wrappedKey: PrivateKey
+  private val wrappedKey: PrivateKey,
 ) {
 
   /**
@@ -25,7 +27,7 @@ class PrivateKeyWithAlias(
   // Override equals to ensure equality checks take alias and key into account
   override fun equals(other: Any?): Boolean {
     if (this === other) return true
-    if (other !is PrivateKeyWithAlias) return false
+    if (other !is WrappedPrivateKey) return false
     return alias == other.alias && wrappedKey == other.wrappedKey
   }
 

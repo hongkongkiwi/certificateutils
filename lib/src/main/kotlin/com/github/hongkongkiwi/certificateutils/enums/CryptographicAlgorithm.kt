@@ -43,11 +43,34 @@ enum class CryptographicAlgorithm {
   }
 
   /**
-   * Returns a human-readable string representation of the cryptographic algorithm.
+   * Returns a string representation of the cryptographic algorithm.
    *
-   * @return The name of the algorithm as a String.
+   * This method provides a concise name for the algorithm.
+   *
+   * @return A string representing the algorithm's name.
    */
   override fun toString(): String {
+    return when (this) {
+      RSA -> "RSA"
+      EC -> "EC"
+      DSA -> "DSA"
+      Ed25519 -> "Ed25519"
+      Ed448 -> "Ed448"
+      X25519 -> "X25519"
+      DH -> "DH"
+      ECDSA -> "ECDSA"
+    }
+  }
+
+  /**
+   * Returns a human-readable string representation of the cryptographic algorithm.
+   *
+   * This method provides a more detailed description of the algorithm,
+   * including its type or classification.
+   *
+   * @return A string that describes the algorithm in a human-readable format.
+   */
+  fun description(): String {
     return when (this) {
       RSA -> "RSA Algorithm"
       EC -> "Elliptic Curve Algorithm"
@@ -58,5 +81,15 @@ enum class CryptographicAlgorithm {
       DH -> "Diffie-Hellman Algorithm"
       ECDSA -> "Elliptic Curve Digital Signature Algorithm"
     }
+  }
+
+  /**
+   * Compares the algorithm with a given string representation.
+   *
+   * @param algorithmName The name of the algorithm as a String.
+   * @return True if the algorithm matches the given string, false otherwise.
+   */
+  fun matches(algorithmName: String): Boolean {
+    return this.toString().equals(algorithmName, ignoreCase = true)
   }
 }
