@@ -1,6 +1,7 @@
 package com.github.hongkongkiwi.certificateutils.extensions
 
 import com.github.hongkongkiwi.certificateutils.CertificateUtils
+import com.github.hongkongkiwi.certificateutils.PEMUtils
 import org.bouncycastle.pkcs.PKCS10CertificationRequest
 import java.security.PrivateKey
 import java.security.PublicKey
@@ -13,7 +14,7 @@ import java.util.Base64
  * @return True if the string contains generic certificate markers, false otherwise.
  */
 fun String.isCertificatePem(): Boolean {
-  return this.contains(CertificateUtils.GENERIC_CERTIFICATE_MARKERS.first)
+  return this.contains(PEMUtils.GENERIC_CERTIFICATE_MARKERS.first)
 }
 
 /**
@@ -22,14 +23,14 @@ fun String.isCertificatePem(): Boolean {
  * @return True if the string contains any known private key markers, false otherwise.
  */
 fun String.isPrivateKeyPem(): Boolean {
-  return this.contains(CertificateUtils.GENERIC_PRIVATE_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.RSA_PRIVATE_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.EC_PRIVATE_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.DSA_PRIVATE_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.ED25519_PRIVATE_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.ED448_PRIVATE_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.X25519_PRIVATE_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.DH_PRIVATE_KEY_MARKERS.first)
+  return this.contains(PEMUtils.GENERIC_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.RSA_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.EC_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.DSA_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.ED25519_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.ED448_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.X25519_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.DH_PRIVATE_KEY_MARKERS.first)
 }
 
 /**
@@ -38,14 +39,14 @@ fun String.isPrivateKeyPem(): Boolean {
  * @return True if the string contains any known public key markers, false otherwise.
  */
 fun String.isPublicKeyPem(): Boolean {
-  return this.contains(CertificateUtils.RSA_PUBLIC_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.EC_PUBLIC_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.DSA_PUBLIC_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.ED25519_PUBLIC_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.ED448_PUBLIC_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.X25519_PUBLIC_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.DH_PUBLIC_KEY_MARKERS.first) ||
-    this.contains(CertificateUtils.GENERIC_PUBLIC_KEY_MARKERS.first)
+  return this.contains(PEMUtils.RSA_PUBLIC_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.EC_PUBLIC_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.DSA_PUBLIC_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.ED25519_PUBLIC_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.ED448_PUBLIC_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.X25519_PUBLIC_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.DH_PUBLIC_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.GENERIC_PUBLIC_KEY_MARKERS.first)
 }
 
 /**
@@ -54,8 +55,8 @@ fun String.isPublicKeyPem(): Boolean {
  * @return True if the string contains any CSR markers, false otherwise.
  */
 fun String.isCsrPem(): Boolean {
-  return this.contains(CertificateUtils.CERTIFICATE_REQUEST_MARKERS.first) ||
-    this.contains(CertificateUtils.NEW_CERTIFICATE_REQUEST_MARKERS.first)
+  return this.contains(PEMUtils.CERTIFICATE_REQUEST_MARKERS.first) ||
+    this.contains(PEMUtils.NEW_CERTIFICATE_REQUEST_MARKERS.first)
 }
 
 /**
@@ -103,7 +104,7 @@ private fun String.extractBase64FromPem(): String {
  * @return The parsed X509Certificate.
  */
 fun String.toX509Certificate(allowExpired: Boolean = false): X509Certificate {
-  return CertificateUtils.parseCertificatePem(this, allowExpired).first()
+  return PEMUtils.parseCertificatePem(this, allowExpired).first()
 }
 
 /**
@@ -113,7 +114,7 @@ fun String.toX509Certificate(allowExpired: Boolean = false): X509Certificate {
  * @return A list of parsed X509Certificates.
  */
 fun String.toX509Certificates(allowExpired: Boolean = false): List<X509Certificate> {
-  return CertificateUtils.parseCertificatePem(this, allowExpired)
+  return PEMUtils.parseCertificatePem(this, allowExpired)
 }
 
 /**
@@ -122,7 +123,7 @@ fun String.toX509Certificates(allowExpired: Boolean = false): List<X509Certifica
  * @return The parsed PKCS10CertificationRequest.
  */
 fun String.toPKCS10CertificationRequest(): PKCS10CertificationRequest {
-  return CertificateUtils.parseCsrPem(this).first()
+  return PEMUtils.parseCsrPem(this).first()
 }
 
 /**
@@ -131,7 +132,7 @@ fun String.toPKCS10CertificationRequest(): PKCS10CertificationRequest {
  * @return A list of parsed PKCS10CertificationRequests.
  */
 fun String.toPKCS10CertificationRequests(): List<PKCS10CertificationRequest> {
-  return CertificateUtils.parseCsrPem(this)
+  return PEMUtils.parseCsrPem(this)
 }
 
 /**
@@ -140,7 +141,7 @@ fun String.toPKCS10CertificationRequests(): List<PKCS10CertificationRequest> {
  * @return The parsed PrivateKey.
  */
 fun String.toPrivateKey(): PrivateKey {
-  return CertificateUtils.parsePrivateKeyPem(this).first()
+  return PEMUtils.parsePrivateKeyPem(this).first()
 }
 
 /**
@@ -149,7 +150,7 @@ fun String.toPrivateKey(): PrivateKey {
  * @return A list of parsed PrivateKeys.
  */
 fun String.toPrivateKeys(): List<PrivateKey> {
-  return CertificateUtils.parsePrivateKeyPem(this)
+  return PEMUtils.parsePrivateKeyPem(this)
 }
 
 /**
@@ -159,7 +160,7 @@ fun String.toPrivateKeys(): List<PrivateKey> {
  * @return The decrypted PrivateKey.
  */
 fun String.toEncryptedPrivateKey(passphrase: CharArray): PrivateKey {
-  return CertificateUtils.parsePrivateKeyPem(this, passphrase).first()
+  return PEMUtils.parsePrivateKeyPem(this, passphrase).first()
 }
 
 /**
@@ -169,7 +170,7 @@ fun String.toEncryptedPrivateKey(passphrase: CharArray): PrivateKey {
  * @return A list of decrypted PrivateKeys.
  */
 fun String.toEncryptedPrivateKeys(passphrase: CharArray): List<PrivateKey> {
-  return CertificateUtils.parsePrivateKeyPem(this, passphrase)
+  return PEMUtils.parsePrivateKeyPem(this, passphrase)
 }
 
 /**
@@ -178,7 +179,7 @@ fun String.toEncryptedPrivateKeys(passphrase: CharArray): List<PrivateKey> {
  * @return The parsed PublicKey.
  */
 fun String.toPublicKey(): PublicKey {
-  return CertificateUtils.parsePublicKeyPem(this).first()
+  return PEMUtils.parsePublicKeyPem(this).first()
 }
 
 /**
@@ -187,7 +188,7 @@ fun String.toPublicKey(): PublicKey {
  * @return A list of parsed PublicKeys.
  */
 fun String.toPublicKeys(): List<PublicKey> {
-  return CertificateUtils.parsePublicKeyPem(this)
+  return PEMUtils.parsePublicKeyPem(this)
 }
 
 /**

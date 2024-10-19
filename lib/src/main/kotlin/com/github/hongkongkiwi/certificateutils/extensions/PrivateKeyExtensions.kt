@@ -1,7 +1,9 @@
 package com.github.hongkongkiwi.certificateutils.extensions
 
 import com.github.hongkongkiwi.certificateutils.CertificateUtils
+import com.github.hongkongkiwi.certificateutils.exceptions.AndroidKeyStoreException
 import com.github.hongkongkiwi.certificateutils.enums.ECCurve
+import java.nio.charset.Charset
 import java.security.KeyFactory
 import java.security.KeyPair
 import java.security.MessageDigest
@@ -208,12 +210,17 @@ fun PrivateKey.getFingerprint(algorithm: String = "SHA-256"): String {
 }
 
 /**
- * Converts the PrivateKey to DER format (binary representation).
+ * Extension function for [PrivateKey] that converts the private key to a DER-encoded byte array.
  *
- * @return ByteArray in DER format.
+ * DER (Distinguished Encoding Rules) is a binary encoding format for X.509 certificates
+ * and public keys. This function converts the public key to its DER-encoded byte array
+ * by accessing the key's encoded form.
+ *
+ * @return A byte array containing the DER-encoded representation of the private key.
  */
 fun PrivateKey.toDer(): ByteArray {
-  return this.encoded // Returns the key in its raw binary format (DER)
+  require(!this.isFromAndroidKeyStore()) { "Private key must not be from Android Keystore" }
+  return this.encoded ?: throw IllegalArgumentException("Failed to encode private key to DER format.")
 }
 
 /**
@@ -242,6 +249,38 @@ fun PrivateKey.toKeyPair(publicKey: PublicKey?, keysMustMatch: Boolean = true): 
   return KeyPair(actualPublicKey, this)
 }
 
+/**
+ * Extension function for [PrivateKey] that retrieves the alias of the key from the Android Keystore.
+ *
+ * This function searches the Android Keystore for the alias associated with this [PrivateKey]. It uses
+ * the [CertificateUtils.getAndroidKeyStoreAlias] method to perform the search.
+ *
+ * @receiver The [PrivateKey] whose alias needs to be retrieved from the Android Keystore.
+ *
+ * @return The alias associated with this [PrivateKey], or `null` if no matching alias is found.
+ *
+ * @throws AndroidKeyStoreException If an error occurs while searching the Android Keystore,
+ * such as issues loading the keystore or retrieving the key.
+ */
+fun PrivateKey.getAndroidKeyStoreAlias(): String? {
+  return CertificateUtils.getAndroidKeyStoreAlias(this)
+}
 
+/**
+ * Extension function for [PrivateKey] that converts the private key to a PEM-encoded byte array.
+ *
+ * This function converts the private key into a PEM format string, which includes the necessary
+ * header and footer (`-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----`).
+ * It then converts this PEM string into a byte array using the specified [charset].
+ *
+ * @param charset The [Charset] to be used for encoding the PEM string into a byte array.
+ * Defaults to [Charsets.UTF_8].
+ *
+ * @return A byte array containing the PEM-encoded representation of the private key.
+ */
+fun PrivateKey.toPemByteArray(charset: Charset = Charsets.UTF_8): ByteArray {
+  require(!this.isFromAndroidKeyStore()) { "Private key must not be from Android Keystore" }
+  return this.toPem().toByteArray(charset)
+}
 
 

@@ -20,6 +20,11 @@ class KeyPairSerializer : KSerializer<KeyPair> {
   }
 
   override fun serialize(encoder: Encoder, value: KeyPair) {
+    // Check if the private key is from the Android Keystore
+    if (isFromAndroidKeyStore(value.private)) {
+      throw IllegalArgumentException("Cannot serialize a PrivateKey stored in the Android Keystore.")
+    }
+
     encoder.encodeStructure(descriptor) {
       encodeSerializableElement(descriptor, 0, PrivateKeySerializer(), value.private)
       encodeSerializableElement(descriptor, 1, PublicKeySerializer(), value.public)
@@ -42,5 +47,15 @@ class KeyPairSerializer : KSerializer<KeyPair> {
 
       KeyPair(publicKey, privateKey)
     }
+  }
+
+  /**
+   * Checks whether the private key is from the Android Keystore.
+   * Replace this with your actual implementation for checking.
+   */
+  private fun isFromAndroidKeyStore(privateKey: PrivateKey): Boolean {
+    // Check if the private key comes from Android Keystore.
+    // This logic will depend on your project's specific implementation.
+    return privateKey.algorithm.contains("AndroidKeyStore", ignoreCase = true)
   }
 }

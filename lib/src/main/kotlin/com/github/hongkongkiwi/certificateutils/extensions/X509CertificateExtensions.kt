@@ -1,7 +1,9 @@
 package com.github.hongkongkiwi.certificateutils.extensions
 
 import com.github.hongkongkiwi.certificateutils.CertificateUtils
+import com.github.hongkongkiwi.certificateutils.PEMUtils
 import com.github.hongkongkiwi.certificateutils.enums.DigestAlgorithm
+import java.nio.charset.Charset
 import java.security.MessageDigest
 import java.security.cert.CRL
 import java.security.cert.X509CRL
@@ -108,7 +110,7 @@ fun X509Certificate.isRevoked(crl: CRL): Boolean {
  * @return The PEM formatted string of the X509Certificate object.
  */
 fun X509Certificate.toPem(): String {
-  return CertificateUtils.getCertificatePem(this)
+  return PEMUtils.getCertificatePem(this)
 }
 
 /**
@@ -126,7 +128,7 @@ fun List<X509Certificate>.getValidCertificates(): List<X509Certificate> {
  * @return A PEM formatted string representation of the certificates.
  */
 fun List<X509Certificate>.toPem(): String {
-  return this.joinToString("\n") { CertificateUtils.getCertificatePem(it) }
+  return this.joinToString("\n") { PEMUtils.getCertificatePem(it) }
 }
 
 /**
@@ -202,15 +204,6 @@ fun X509Certificate.isCertificateAuthority(): Boolean {
 }
 
 /**
- * Converts the X509Certificate to a DER encoded byte array.
- *
- * @return The DER encoded byte array of the certificate.
- */
-fun X509Certificate.toDer(): ByteArray {
-  return this.encoded
-}
-
-/**
  * Retrieves the key usage information from the X509Certificate.
  *
  * @return A list of key usage purposes, or an empty list if none are found.
@@ -240,5 +233,36 @@ fun X509Certificate.getKeyUsageInfo(): List<String> {
 fun X509Certificate.isTrusted(trustedRoots: List<X509Certificate>): Boolean {
   return trustedRoots.any { it.getDigest(DigestAlgorithm.SHA256) == this.getDigest(DigestAlgorithm.SHA256) }
 }
+
+/**
+ * Extension function for [X509Certificate] that converts the certificate to a PEM-encoded byte array.
+ *
+ * This function first converts the X.509 certificate into a PEM format string, which includes the
+ * necessary header and footer (`-----BEGIN CERTIFICATE-----` and `-----END CERTIFICATE-----`).
+ * It then converts this PEM string into a byte array using the specified [charset].
+ *
+ * @param charset The [Charset] to be used for encoding the PEM string into a byte array.
+ * Defaults to [Charsets.UTF_8].
+ *
+ * @return A byte array containing the PEM-encoded representation of the certificate.
+ */
+fun X509Certificate.toPemByteArray(charset: Charset = Charsets.UTF_8): ByteArray {
+  return this.toPem().toByteArray(charset)
+}
+
+/**
+ * Extension function for [X509Certificate] that converts the certificate to a DER-encoded byte array.
+ *
+ * DER (Distinguished Encoding Rules) is a binary encoding format used for certificates and keys.
+ * This function converts the X.509 certificate into its DER-encoded byte array representation.
+ *
+ * @return A byte array containing the DER-encoded representation of the certificate.
+ *
+ * @throws IllegalArgumentException if the certificate cannot be encoded.
+ */
+fun X509Certificate.toDer(): ByteArray {
+  return this.encoded ?: throw IllegalArgumentException("Failed to encode X509Certificate to DER format.")
+}
+
 
 

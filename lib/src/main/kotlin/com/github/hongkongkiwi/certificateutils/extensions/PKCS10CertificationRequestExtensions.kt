@@ -1,6 +1,7 @@
 package com.github.hongkongkiwi.certificateutils.extensions
 
 import com.github.hongkongkiwi.certificateutils.CertificateUtils
+import com.github.hongkongkiwi.certificateutils.PEMUtils
 import org.bouncycastle.asn1.x500.RDN
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x500.style.BCStyle
@@ -9,7 +10,6 @@ import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder
 import org.bouncycastle.pkcs.PKCS10CertificationRequest
 import java.security.PublicKey
-import javax.security.auth.x500.X500Principal
 
 /**
  * Checks if the PKCS10CertificationRequest is valid.
@@ -26,7 +26,7 @@ fun PKCS10CertificationRequest.isCsrValid(): Boolean {
  * @return The PEM formatted string of the PKCS10CertificationRequest object.
  */
 fun PKCS10CertificationRequest.toPem(): String {
-  return CertificateUtils.getCsrPem(this)
+  return PEMUtils.getCsrPem(this)
 }
 
 /**
@@ -94,12 +94,19 @@ fun PKCS10CertificationRequest.getSubjectInfo(): Map<String, String> {
 }
 
 /**
- * Converts the PKCS10CertificationRequest to a DER encoded byte array.
+ * Extension function for [PKCS10CertificationRequest] that converts the certification request
+ * to a DER-encoded byte array.
  *
- * @return The DER encoded byte array of the CSR.
+ * DER (Distinguished Encoding Rules) is a binary encoding format commonly used for
+ * certificates and public/private keys. This function converts the PKCS#10 certificate signing
+ * request into its DER-encoded byte array representation.
+ *
+ * @return A byte array containing the DER-encoded representation of the PKCS#10 certification request.
+ *
+ * @throws IllegalArgumentException if the certification request cannot be encoded.
  */
 fun PKCS10CertificationRequest.toDer(): ByteArray {
-  return this.encoded
+  return this.encoded ?: throw IllegalArgumentException("Failed to encode PKCS10CertificationRequest to DER format.")
 }
 
 /**
