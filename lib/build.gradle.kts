@@ -1,6 +1,6 @@
 plugins {
   id("maven-publish")
-  alias(libs.plugins.android.library)
+  alias(libs.plugins.android.library) apply false
   alias(libs.plugins.kotlin.android)
   alias(libs.plugins.dokka)
 }
@@ -19,6 +19,9 @@ android {
     release {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+    }
+    debug {
+      isMinifyEnabled = false
     }
   }
   compileOptions {
