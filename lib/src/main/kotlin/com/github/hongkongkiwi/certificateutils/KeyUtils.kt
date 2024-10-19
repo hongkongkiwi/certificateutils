@@ -149,6 +149,28 @@ object KeyUtils {
   }
 
   /**
+   * Generates an RSA private key.
+   *
+   * @param keySize The size of the RSA key (default is 2048 bits).
+   * @return The generated RSA key pair (public and private keys).
+   * @throws NoSuchAlgorithmException If the RSA algorithm is not available.
+   * @throws NoSuchProviderException If the Android Keystore provider is not available.
+   * @throws InvalidAlgorithmParameterException If the KeyGenParameterSpec is invalid.
+   * @throws UnsupportedOperationException If an unsupported key size is used for the Android Keystore.
+   */
+  @JvmStatic
+  @Throws(
+    NoSuchAlgorithmException::class,
+    NoSuchProviderException::class,
+    InvalidAlgorithmParameterException::class
+  )
+  fun generatePrivateKeyRSA(
+    keySize: Int = 2048, // Default to RSA 2048
+  ): PrivateKey {
+    return generateKeyPairRSA(keySize).private
+  }
+
+  /**
    * Generates an EC private key.
    *
    * @param ecCurve The elliptic curve to use (default is SECP256R1).
