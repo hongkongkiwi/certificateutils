@@ -1,6 +1,9 @@
 package com.github.hongkongkiwi.certificateutils.extensions
 
+import com.github.hongkongkiwi.certificateutils.AndroidKeyStoreUtils
 import com.github.hongkongkiwi.certificateutils.CertificateUtils
+import com.github.hongkongkiwi.certificateutils.KeyUtils
+import com.github.hongkongkiwi.certificateutils.PEMUtils
 import com.github.hongkongkiwi.certificateutils.exceptions.AndroidKeyStoreException
 import com.github.hongkongkiwi.certificateutils.enums.ECCurve
 import java.nio.charset.Charset
@@ -36,7 +39,7 @@ fun PrivateKey.getCurveName(): ECCurve? {
   return when (this) {
     is ECPrivateKey -> {
       // Use the existing getCurveName method in CertificateUtils
-      CertificateUtils.getCurveNameFromSpec(this.params)
+      KeyUtils.getCurveNameFromSpec(this.params)
     }
     else -> null // Return null if it's not an ECPrivateKey
   }
@@ -48,7 +51,7 @@ fun PrivateKey.getCurveName(): ECCurve? {
  * @return True if the algorithm is "AndroidKeyStore", false otherwise.
  */
 fun PrivateKey.isFromAndroidKeyStore(): Boolean {
-  return this::class.java.name.contains("AndroidKeyStore")
+  return AndroidKeyStoreUtils.isFromAndroidKeyStore(this)
 }
 
 /**
@@ -58,7 +61,7 @@ fun PrivateKey.isFromAndroidKeyStore(): Boolean {
  * @return The PEM formatted string representation of the PrivateKey.
  */
 fun PrivateKey.toPem(passphrase: CharArray? = null): String {
-  return CertificateUtils.getPrivateKeyPem(this, passphrase)
+  return PEMUtils.getPrivateKeyPem(this, passphrase)
 }
 
 /**
@@ -104,7 +107,7 @@ fun PrivateKey.isPkcs1(): Boolean {
  * @return The PublicKey as a String.
  */
 fun PrivateKey.getPublicKey(): PublicKey {
-  return CertificateUtils.getPublicKey(this)
+  return KeyUtils.getPublicKey(this)
 }
 
 /**
@@ -232,7 +235,7 @@ fun PrivateKey.toDer(): ByteArray {
  *
  * @receiver [PrivateKey] The private key that will be used in the key pair.
  * @param publicKey [PublicKey]? An optional public key to include in the key pair. If not provided,
- * the function will attempt to derive the public key using [CertificateUtils.getPublicKey].
+ * the function will attempt to derive the public key using [KeyUtils.getPublicKey].
  * @param keysMustMatch [Boolean] If true, ensures that the provided [PublicKey] matches the [PrivateKey].
  * If the keys do not match, an [IllegalArgumentException] is thrown. Defaults to true.
  *
@@ -245,7 +248,7 @@ fun PrivateKey.toKeyPair(publicKey: PublicKey?, keysMustMatch: Boolean = true): 
   if (publicKey != null && keysMustMatch) {
     require(this.matchesPublicKey(publicKey)) { "Public key does not match the private key" }
   }
-  val actualPublicKey = publicKey ?: CertificateUtils.getPublicKey(this)
+  val actualPublicKey = publicKey ?: KeyUtils.getPublicKey(this)
   return KeyPair(actualPublicKey, this)
 }
 
@@ -253,7 +256,7 @@ fun PrivateKey.toKeyPair(publicKey: PublicKey?, keysMustMatch: Boolean = true): 
  * Extension function for [PrivateKey] that retrieves the alias of the key from the Android Keystore.
  *
  * This function searches the Android Keystore for the alias associated with this [PrivateKey]. It uses
- * the [CertificateUtils.getAndroidKeyStoreAlias] method to perform the search.
+ * the [AndroidKeyStoreUtils.getAliasForKey] method to perform the search.
  *
  * @receiver The [PrivateKey] whose alias needs to be retrieved from the Android Keystore.
  *
@@ -263,7 +266,7 @@ fun PrivateKey.toKeyPair(publicKey: PublicKey?, keysMustMatch: Boolean = true): 
  * such as issues loading the keystore or retrieving the key.
  */
 fun PrivateKey.getAndroidKeyStoreAlias(): String? {
-  return CertificateUtils.getAndroidKeyStoreAlias(this)
+  return AndroidKeyStoreUtils.getAliasForKey(this)
 }
 
 /**

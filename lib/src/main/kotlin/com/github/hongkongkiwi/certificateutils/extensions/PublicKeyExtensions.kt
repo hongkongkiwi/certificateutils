@@ -1,7 +1,6 @@
 package com.github.hongkongkiwi.certificateutils.extensions
 
 import com.github.hongkongkiwi.certificateutils.AndroidKeyStoreUtils
-import com.github.hongkongkiwi.certificateutils.CertificateUtils
 import com.github.hongkongkiwi.certificateutils.PEMUtils
 import com.github.hongkongkiwi.certificateutils.exceptions.AndroidKeyStoreException
 import java.nio.charset.Charset
@@ -16,7 +15,7 @@ import java.security.spec.PKCS8EncodedKeySpec
  * @return True if the algorithm is "AndroidKeyStore", false otherwise.
  */
 fun PublicKey.isFromAndroidKeyStore(): Boolean {
-  return this::class.java.name.contains("AndroidKeyStore")
+  return AndroidKeyStoreUtils.isFromAndroidKeyStore(this)
 }
 
 /**
@@ -90,7 +89,7 @@ fun PublicKey.isEdDsaKey(): Boolean {
  * Extension function for [PublicKey] that retrieves the alias of the key from the Android Keystore.
  *
  * This function searches the Android Keystore for the alias associated with this [PublicKey]. It uses
- * the [CertificateUtils.getAndroidKeyStoreAlias] method to perform the search.
+ * the [AndroidKeyStoreUtils.getAliasForKey] method to perform the search.
  *
  * @receiver The [PublicKey] whose alias needs to be retrieved from the Android Keystore.
  *
@@ -100,7 +99,7 @@ fun PublicKey.isEdDsaKey(): Boolean {
  * such as issues loading the keystore or retrieving the key.
  */
 fun PublicKey.getAndroidKeyStoreAlias(): String? {
-  return AndroidKeyStoreUtils.getAndroidKeyStoreAlias(this)
+  return AndroidKeyStoreUtils.getAliasForKey(this)
 }
 
 /**

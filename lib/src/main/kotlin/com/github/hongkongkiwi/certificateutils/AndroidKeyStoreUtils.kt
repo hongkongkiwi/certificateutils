@@ -2,6 +2,7 @@ package com.github.hongkongkiwi.certificateutils
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import com.github.hongkongkiwi.certificateutils.enums.ECCurve
 import com.github.hongkongkiwi.certificateutils.exceptions.AndroidKeyStoreException
 import com.github.hongkongkiwi.certificateutils.exceptions.CACertificateUpdateException
 import com.github.hongkongkiwi.certificateutils.exceptions.InvalidCertificatePemException
@@ -9,16 +10,20 @@ import com.github.hongkongkiwi.certificateutils.exceptions.InvalidPrivateKeyPemE
 import com.github.hongkongkiwi.certificateutils.exceptions.KeyPairMismatchException
 import com.github.hongkongkiwi.certificateutils.exceptions.PrivateKeyImportException
 import com.github.hongkongkiwi.certificateutils.exceptions.PublicKeyImportException
-import com.github.hongkongkiwi.certificateutils.extensions.isFromAndroidKeyStore
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import java.security.InvalidAlgorithmParameterException
 import java.security.KeyPair
+import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.KeyStoreException
+import java.security.NoSuchAlgorithmException
+import java.security.NoSuchProviderException
 import java.security.PrivateKey
 import java.security.PublicKey
 import java.security.Security
 import java.security.cert.Certificate
 import java.security.cert.X509Certificate
+import java.security.spec.ECGenParameterSpec
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
@@ -46,12 +51,12 @@ object AndroidKeyStoreUtils {
   @Throws(
     PrivateKeyImportException::class,
   )
-  fun importKeyPairToAndroidKeyStore(
+  fun importKeyPair(
     alias: String,
     keyPair: KeyPair,
     certificateChain: List<Certificate>,
     password: CharArray? = null,
-    keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
       // Make sure the first certificate is signed by the private key in the key pair
@@ -95,11 +100,11 @@ object AndroidKeyStoreUtils {
     KeyPairMismatchException::class,
     InvalidPrivateKeyPemException::class,
   )
-  fun updateCertificateChainInAndroidKeyStore(
+  fun updateCertificateChain(
     alias: String,
     certificateChain: List<Certificate>,
     password: CharArray? = null,
-    keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
       // Check if the alias exists in the keystore
@@ -147,11 +152,11 @@ object AndroidKeyStoreUtils {
     KeyPairMismatchException::class,
     InvalidPrivateKeyPemException::class,
   )
-  fun updateEndEntityCertificateInAndroidKeyStore(
+  fun updateEndEntityCertificate(
     alias: String,
     newEndEntityCertificate: Certificate,
     password: CharArray? = null,
-    keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
       // Check if the alias exists in the keystore
@@ -207,11 +212,11 @@ object AndroidKeyStoreUtils {
     InvalidPrivateKeyPemException::class,
     CACertificateUpdateException::class,
   )
-  fun updateCACertificatesInAndroidKeyStore(
+  fun updateCACertificates(
     alias: String,
     newCACertificateChain: List<Certificate>,
     password: CharArray? = null,
-    keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
       // Check if the alias exists in the keystore
@@ -260,17 +265,14 @@ object AndroidKeyStoreUtils {
   @Throws(
     KeyStoreException::class,
   )
-  fun removeKeyAliasFromAndroidKeystore(
+  fun removeKeyAlias(
     alias: String,
-    keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
       // Check if the alias exists in the Keystore
       if (keyStore.containsAlias(alias)) {
         keyStore.deleteEntry(alias)
-        println("Key alias '$alias' removed from Android Keystore.")
-      } else {
-        println("Key alias '$alias' does not exist in the Android Keystore.")
       }
     } catch (e: Exception) {
       throw KeyStoreException(
@@ -292,9 +294,9 @@ object AndroidKeyStoreUtils {
   @Throws(
     KeyStoreException::class,
   )
-  fun aliasExistsInAndroidKeyStore(
+  fun aliasExists(
     alias: String,
-    keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
   ): Boolean {
     return try {
       keyStore.containsAlias(alias)
@@ -321,10 +323,10 @@ object AndroidKeyStoreUtils {
   @Throws(
     PublicKeyImportException::class,
   )
-  fun importPublicKeyToAndroidKeystore(
+  fun importPublicKey(
     alias: String,
     certificate: X509Certificate,
-    keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
       // Import the certificate (which contains the public key) into the keystore
@@ -355,12 +357,12 @@ object AndroidKeyStoreUtils {
   @Throws(
     AndroidKeyStoreException::class,
   )
-  fun getAndroidKeyStoreAlias(
+  fun getAliasForKey(
     privateKey: PrivateKey,
-    keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
   ): String? {
     try {
-      require(privateKey.isFromAndroidKeyStore()) { "Provided private key is not from the Android Keystore." }
+      require(isFromAndroidKeyStore(privateKey)) { "Provided private key is not from the Android Keystore." }
 
       // Iterate through all aliases in the Keystore
       val aliases = keyStore.aliases()
@@ -400,11 +402,11 @@ object AndroidKeyStoreUtils {
   @Throws(
     AndroidKeyStoreException::class,
   )
-  fun getAndroidKeyStoreAlias(
+  fun getAliasForKey(
     publicKey: PublicKey,
-    keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
   ): String? {
-    require(publicKey.isFromAndroidKeyStore()) { "Provided public key is not from the Android Keystore." }
+    require(isFromAndroidKeyStore(publicKey)) { "Provided public key is not from the Android Keystore." }
 
     try {
       // Iterate through all aliases in the Keystore
@@ -469,5 +471,348 @@ object AndroidKeyStoreUtils {
     } catch (e: Exception) {
       throw IllegalStateException("Failed to initialize key generator for Android Keystore", e)
     }
+  }
+
+  /**
+   * Retrieves a KeyPair (PrivateKey and PublicKey) from the Android Keystore.
+   *
+   * @param alias The alias of the key to retrieve.
+   * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
+   * @return A KeyPair containing the PrivateKey and PublicKey, or null if the alias does not exist or keys cannot be retrieved.
+   * @throws KeyStoreException If there is an issue accessing the Keystore or retrieving the keys.
+   */
+  @JvmStatic
+  @Throws(
+    KeyStoreException::class
+  )
+  fun getKeyPair(
+    alias: String,
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
+  ): KeyPair? {
+    return try {
+      // Check if the alias exists in the Keystore
+      if (keyStore.containsAlias(alias)) {
+        // Retrieve the PrivateKey from the Keystore
+        val privateKey = keyStore.getKey(alias, null) as? PrivateKey
+          ?: throw KeyStoreException("No private key found for alias '$alias'.")
+
+        // Retrieve the corresponding certificate (which contains the PublicKey)
+        val certificate = keyStore.getCertificate(alias)
+        val publicKey = certificate?.publicKey
+          ?: throw KeyStoreException("No public key found for alias '$alias'.")
+
+        // Return the KeyPair
+        KeyPair(publicKey, privateKey)
+      } else {
+        null
+      }
+    } catch (e: Exception) {
+      throw KeyStoreException(
+        "Failed to retrieve key pair for alias '$alias' from the Android Keystore: ${e.message}",
+        e
+      )
+    }
+  }
+
+  /**
+   * Retrieves a Private Key from the Android Keystore.
+   *
+   * @param alias The alias of the key to retrieve.
+   * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
+   * @return A KeyPair containing the PrivateKey and PublicKey, or null if the alias does not exist or keys cannot be retrieved.
+   * @throws KeyStoreException If there is an issue accessing the Keystore or retrieving the keys.
+   */
+  @JvmStatic
+  @Throws(
+    KeyStoreException::class
+  )
+  fun getPrivateKey(
+    alias: String,
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
+  ): PrivateKey? {
+    return try {
+      // Check if the alias exists in the Keystore
+      if (keyStore.containsAlias(alias)) {
+        // Retrieve the PrivateKey from the Keystore
+        return keyStore.getKey(alias, null) as? PrivateKey
+          ?: throw KeyStoreException("No private key found for alias '$alias'.")
+      } else {
+        null
+      }
+    } catch (e: Exception) {
+      throw KeyStoreException(
+        "Failed to retrieve private key for alias '$alias' from the Android Keystore: ${e.message}",
+        e
+      )
+    }
+  }
+
+  /**
+   * Retrieves a Public Key from the Android Keystore.
+   *
+   * @param alias The alias of the key to retrieve.
+   * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
+   * @return A KeyPair containing the PrivateKey and PublicKey, or null if the alias does not exist or keys cannot be retrieved.
+   * @throws KeyStoreException If there is an issue accessing the Keystore or retrieving the keys.
+   */
+  @JvmStatic
+  @Throws(
+    KeyStoreException::class
+  )
+  fun getPublicKey(
+    alias: String,
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
+  ): PublicKey? {
+    return try {
+      // Check if the alias exists in the Keystore
+      if (keyStore.containsAlias(alias)) {
+        // Retrieve the corresponding certificate (which contains the PublicKey)
+        val certificate = keyStore.getCertificate(alias)
+        return certificate?.publicKey
+          ?: throw KeyStoreException("No public key found for alias '$alias'.")
+      } else {
+        null
+      }
+    } catch (e: Exception) {
+      throw KeyStoreException(
+        "Failed to retrieve key pair for alias '$alias' from the Android Keystore: ${e.message}",
+        e
+      )
+    }
+  }
+
+  /**
+   * Retrieves the end certificate (leaf certificate) for a given alias from the Android Keystore.
+   *
+   * @param alias The alias of the key to retrieve the certificate for.
+   * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
+   * @return The end certificate (X509Certificate) or null if not found.
+   * @throws KeyStoreException If there is an issue accessing the Keystore or retrieving the certificate.
+   */
+  @JvmStatic
+  @Throws(KeyStoreException::class)
+  fun getEndCertificate(
+    alias: String,
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
+  ): X509Certificate? {
+    return try {
+      // Retrieve the certificate for the alias
+      val certificate = keyStore.getCertificate(alias) as? X509Certificate
+      certificate
+    } catch (e: Exception) {
+      throw KeyStoreException(
+        "Failed to retrieve end certificate for alias '$alias': ${e.message}",
+        e
+      )
+    }
+  }
+
+  /**
+   * Retrieves the full certificate chain for a given alias from the Android Keystore.
+   *
+   * @param alias The alias of the key to retrieve the certificate chain for.
+   * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
+   * @return The certificate chain (Array of Certificates) or null if not found.
+   * @throws KeyStoreException If there is an issue accessing the Keystore or retrieving the certificate chain.
+   */
+  @JvmStatic
+  @Throws(KeyStoreException::class)
+  fun getCertificateChain(
+    alias: String,
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
+  ): Array<Certificate>? {
+    return try {
+      // Retrieve the certificate chain for the alias
+      val certificateChain = keyStore.getCertificateChain(alias)
+      certificateChain
+    } catch (e: Exception) {
+      throw KeyStoreException(
+        "Failed to retrieve certificate chain for alias '$alias': ${e.message}",
+        e
+      )
+    }
+  }
+
+  /**
+   * Retrieves the CA certificates (excluding the end certificate) from the Android Keystore for a given alias.
+   *
+   * @param alias The alias of the key to retrieve the CA certificates for.
+   * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
+   * @return An array of CA certificates or null if no chain is found.
+   * @throws KeyStoreException If there is an issue accessing the Keystore or retrieving the CA certificates.
+   */
+  @JvmStatic
+  @Throws(KeyStoreException::class)
+  fun getCACertificates(
+    alias: String,
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
+  ): Array<Certificate>? {
+    return try {
+      // Retrieve the certificate chain for the alias
+      val certificateChain = keyStore.getCertificateChain(alias)
+      if (certificateChain != null && certificateChain.size > 1) {
+        // Return only the CA certificates (i.e., excluding the first certificate)
+        val caCertificates = certificateChain.drop(1).toTypedArray()
+        caCertificates
+      } else {
+        null
+      }
+    } catch (e: Exception) {
+      throw KeyStoreException(
+        "Failed to retrieve CA certificates for alias '$alias': ${e.message}",
+        e
+      )
+    }
+  }
+
+  /**
+   * Checks if the PrivateKey is stored in the Android Keystore.
+   *
+   * @return True if the algorithm is "AndroidKeyStore", false otherwise.
+   */
+  fun isFromAndroidKeyStore(privateKey: PrivateKey): Boolean {
+    return privateKey::class.java.name.contains("AndroidKeyStore")
+  }
+
+  /**
+   * Checks if the PublicKey is stored in the Android Keystore.
+   *
+   * @return True if the algorithm is "AndroidKeyStore", false otherwise.
+   */
+  fun isFromAndroidKeyStore(publicKey: PublicKey): Boolean {
+    return publicKey::class.java.name.contains("AndroidKeyStore")
+  }
+
+  /**
+   * Retrieves an instance of the Android Keystore.
+   *
+   * @return An instance of the Android Keystore.
+   */
+  private fun getAndroidKeyStoreInstance(): KeyStore {
+    return KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+  }
+
+  /**
+   * Generates an EC key pair. If `keystoreAlias` is provided, the keys are stored in the Android Keystore.
+   *
+   * @param ecCurve The elliptic curve to use (default is SECP256R1).
+   * @param keyStoreAlias The alias for the Android Keystore. If null, a normal key pair is generated.
+   * @param keyStoreKeyPurposes The purposes for which the key can be used (default is signing and verifying).
+   * @return The generated EC key pair (public and private keys).
+   * @throws NoSuchAlgorithmException If the EC algorithm is not available.
+   * @throws NoSuchProviderException If the Android Keystore provider is not available.
+   * @throws InvalidAlgorithmParameterException If the KeyGenParameterSpec is invalid.
+   */
+  @JvmStatic
+  fun generateKeyPairEC(
+    ecCurve: ECCurve = ECCurve.SECP256R1,
+    keyStoreAlias: String,
+    keyStoreKeyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+  ): KeyPair {
+    require(keyStoreAlias.isNotBlank()) { "Keystore alias must not be blank." }
+    require(keyStoreKeyPurposes > 0) { "Key purposes must be greater than 0." }
+    require(ecCurve == ECCurve.SECP256R1) { "Only SECP256R1 (NIST P256) is supported for Android Key Store" }
+
+    // Generate key in Android Keystore
+    val keyPairGenerator = KeyPairGenerator.getInstance("EC", "AndroidKeyStore")
+    val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+      keyStoreAlias,
+      keyStoreKeyPurposes
+    )
+      .setAlgorithmParameterSpec(ECGenParameterSpec(ecCurve.toString()))
+      .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
+      .build()
+
+    keyPairGenerator.initialize(keyGenParameterSpec)
+    return keyPairGenerator.generateKeyPair() // Returns both public and private keys
+  }
+
+  /**
+   * Generates an EC private key. If `keystoreAlias` is provided, the keys are stored in the Android Keystore.
+   *
+   * @param ecCurve The elliptic curve to use (default is SECP256R1).
+   * @param keyStoreAlias The alias for the Android Keystore. If null, a normal key pair is generated.
+   * @param keyStoreKeyPurposes The purposes for which the key can be used (default is signing and verifying).
+   * @return The generated EC key pair (public and private keys).
+   * @throws NoSuchAlgorithmException If the EC algorithm is not available.
+   * @throws NoSuchProviderException If the Android Keystore provider is not available.
+   * @throws InvalidAlgorithmParameterException If the KeyGenParameterSpec is invalid.
+   */
+  @JvmStatic
+  fun generatePrivateKeyEC(
+    ecCurve: ECCurve = ECCurve.SECP256R1,
+    keyStoreAlias: String,
+    keyStoreKeyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+  ): PrivateKey {
+    val keyPair = generateKeyPairEC(ecCurve, keyStoreAlias, keyStoreKeyPurposes)
+    return keyPair.private
+  }
+
+  /**
+   * Generates an RSA key pair. If `keyStoreAlias` is provided, the keys are stored in the Android Keystore.
+   *
+   * @param keyStoreAlias The alias for the Android Keystore. If null, a normal RSA key pair is generated.
+   * @param keyStoreKeyPurposes The purposes for which the key can be used (default is signing and verifying).
+   * @return The generated RSA key pair (public and private keys).
+   * @throws NoSuchAlgorithmException If the RSA algorithm is not available.
+   * @throws NoSuchProviderException If the Android Keystore provider is not available.
+   * @throws InvalidAlgorithmParameterException If the KeyGenParameterSpec is invalid.
+   * @throws UnsupportedOperationException If an unsupported key size is used for the Android Keystore.
+   */
+  @JvmStatic
+  @Throws(
+    NoSuchAlgorithmException::class,
+    NoSuchProviderException::class,
+    InvalidAlgorithmParameterException::class
+  )
+  fun generateKeyPairRSA(
+    keyStoreAlias: String,
+    keyStoreKeyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
+  ): KeyPair {
+    require(keyStoreKeyPurposes > 0) { "Key purposes must be greater than 0." }
+    require(keyStoreAlias.isNotBlank()) { "Keystore alias must not be blank." }
+
+    // Generate RSA key in Android Keystore
+    val keyPairGenerator = KeyPairGenerator.getInstance("RSA", "AndroidKeyStore")
+    val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+      keyStoreAlias,
+      keyStoreKeyPurposes
+    )
+      .setKeySize(2048) // Android Keystore supports only 2048-bit RSA
+      .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512) // Set directly
+      .setEncryptionPaddings(
+        KeyProperties.ENCRYPTION_PADDING_RSA_PKCS1,
+        KeyProperties.ENCRYPTION_PADDING_RSA_OAEP
+      ) // Set directly
+      .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1) // Set directly
+      .build()
+
+    keyPairGenerator.initialize(keyGenParameterSpec)
+    return keyPairGenerator.generateKeyPair() // Returns both public and private keys
+  }
+
+  /**
+   * Generates an RSA private key. If `keyStoreAlias` is provided, the keys are stored in the Android Keystore.
+   *
+   * @param keyStoreAlias The alias for the Android Keystore. If null, a normal RSA key pair is generated.
+   * @param keyStoreKeyPurposes The purposes for which the key can be used (default is signing and verifying).
+   * @return The generated RSA key pair (public and private keys).
+   * @throws NoSuchAlgorithmException If the RSA algorithm is not available.
+   * @throws NoSuchProviderException If the Android Keystore provider is not available.
+   * @throws InvalidAlgorithmParameterException If the KeyGenParameterSpec is invalid.
+   * @throws UnsupportedOperationException If an unsupported key size is used for the Android Keystore.
+   */
+  @JvmStatic
+  @Throws(
+    NoSuchAlgorithmException::class,
+    NoSuchProviderException::class,
+    InvalidAlgorithmParameterException::class
+  )
+  fun generatePrivateKeyRSA(
+    keyStoreAlias: String,
+    keyStoreKeyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
+  ): PrivateKey {
+    val keyPair = generateKeyPairRSA(keyStoreAlias, keyStoreKeyPurposes)
+    return keyPair.private
   }
 }

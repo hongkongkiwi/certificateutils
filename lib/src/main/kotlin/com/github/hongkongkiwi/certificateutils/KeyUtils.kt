@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import com.github.hongkongkiwi.certificateutils.CertificateUtils.curveEquals
 import com.github.hongkongkiwi.certificateutils.enums.CryptographicAlgorithm
 import com.github.hongkongkiwi.certificateutils.enums.ECCurve
 import com.github.hongkongkiwi.certificateutils.exceptions.UnsupportedKeyAlgorithmException
@@ -39,6 +38,8 @@ import java.security.spec.ECPoint
 import java.security.spec.ECPublicKeySpec
 import java.security.spec.RSAPublicKeySpec
 import java.util.Locale
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
 import javax.crypto.interfaces.DHPrivateKey
 
 object KeyUtils {
@@ -99,8 +100,6 @@ object KeyUtils {
    * Generates an RSA key pair. If `keystoreAlias` is provided, the keys are stored in the Android Keystore.
    *
    * @param keySize The size of the RSA key (default is 2048 bits).
-   * @param keyStoreAlias The alias for the Android Keystore. If null, a normal RSA key pair is generated.
-   * @param keyStoreKeyPurposes The purposes for which the key can be used (default is signing and verifying).
    * @return The generated RSA key pair (public and private keys).
    * @throws NoSuchAlgorithmException If the RSA algorithm is not available.
    * @throws NoSuchProviderException If the Android Keystore provider is not available.
@@ -115,50 +114,19 @@ object KeyUtils {
   )
   fun generateKeyPairRSA(
     keySize: Int = 2048, // Default to RSA 2048
-    keyStoreAlias: String? = null,
-    keyStoreKeyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
   ): KeyPair {
     require(keySize in 1024..4096) { "RSA key size must be between 1024 and 4096 bits." }
 
-    if (!keyStoreAlias.isNullOrBlank()) {
-      require(keyStoreKeyPurposes > 0) { "Key purposes must be greater than 0." }
-
-      // Enforce RSA 2048 for Android Keystore
-      if (keySize != 2048) {
-        throw UnsupportedOperationException("Only RSA 2048 is supported in the Android Keystore.")
-      }
-
-      // Generate RSA key in Android Keystore
-      val keyPairGenerator = KeyPairGenerator.getInstance("RSA", "AndroidKeyStore")
-      val keyGenParameterSpec = KeyGenParameterSpec.Builder(
-        keyStoreAlias,
-        keyStoreKeyPurposes
-      )
-        .setKeySize(2048) // Android Keystore supports only 2048-bit RSA
-        .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512) // Set directly
-        .setEncryptionPaddings(
-          KeyProperties.ENCRYPTION_PADDING_RSA_PKCS1,
-          KeyProperties.ENCRYPTION_PADDING_RSA_OAEP
-        ) // Set directly
-        .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1) // Set directly
-        .build()
-
-      keyPairGenerator.initialize(keyGenParameterSpec)
-      return keyPairGenerator.generateKeyPair() // Returns both public and private keys
-    } else {
-      // Generate a normal RSA key pair with a customizable key size
-      val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
-      keyPairGenerator.initialize(keySize, SecureRandom())
-      return keyPairGenerator.generateKeyPair()
-    }
+    // Generate a normal RSA key pair with a customizable key size
+    val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
+    keyPairGenerator.initialize(keySize, SecureRandom())
+    return keyPairGenerator.generateKeyPair()
   }
 
   /**
    * Generates an EC key pair. If `keystoreAlias` is provided, the keys are stored in the Android Keystore.
    *
    * @param ecCurve The elliptic curve to use (default is SECP256R1).
-   * @param keyStoreAlias The alias for the Android Keystore. If null, a normal key pair is generated.
-   * @param keyStoreKeyPurposes The purposes for which the key can be used (default is signing and verifying).
    * @return The generated EC key pair (public and private keys).
    * @throws NoSuchAlgorithmException If the EC algorithm is not available.
    * @throws NoSuchProviderException If the Android Keystore provider is not available.
@@ -172,32 +140,33 @@ object KeyUtils {
   )
   fun generateKeyPairEC(
     ecCurve: ECCurve = ECCurve.SECP256R1,
-    keyStoreAlias: String? = null,
-    keyStoreKeyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
   ): KeyPair {
-    return if (!keyStoreAlias.isNullOrBlank()) {
-      require(keyStoreKeyPurposes > 0) { "Key purposes must be greater than 0." }
-      require(ecCurve == ECCurve.SECP256R1) { "Only SECP256R1 (NIST P256) is supported for Android Key Store" }
+    // Generate a normal EC key pair
+    val keyPairGenerator = KeyPairGenerator.getInstance("EC")
+    val ecSpec = ECGenParameterSpec(ecCurve.toString())
+    keyPairGenerator.initialize(ecSpec, SecureRandom())
+    return keyPairGenerator.generateKeyPair()
+  }
 
-      // Generate key in Android Keystore
-      val keyPairGenerator = KeyPairGenerator.getInstance("EC", "AndroidKeyStore")
-      val keyGenParameterSpec = KeyGenParameterSpec.Builder(
-        keyStoreAlias,
-        keyStoreKeyPurposes
-      )
-        .setAlgorithmParameterSpec(ECGenParameterSpec(ecCurve.toString()))
-        .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
-        .build()
-
-      keyPairGenerator.initialize(keyGenParameterSpec)
-      keyPairGenerator.generateKeyPair() // Returns both public and private keys
-    } else {
-      // Generate a normal EC key pair
-      val keyPairGenerator = KeyPairGenerator.getInstance("EC")
-      val ecSpec = ECGenParameterSpec(ecCurve.toString())
-      keyPairGenerator.initialize(ecSpec, SecureRandom())
-      keyPairGenerator.generateKeyPair()
-    }
+  /**
+   * Generates an EC private key.
+   *
+   * @param ecCurve The elliptic curve to use (default is SECP256R1).
+   * @return The generated EC key pair (public and private keys).
+   * @throws NoSuchAlgorithmException If the EC algorithm is not available.
+   * @throws NoSuchProviderException If the Android Keystore provider is not available.
+   * @throws InvalidAlgorithmParameterException If the KeyGenParameterSpec is invalid.
+   */
+  @JvmStatic
+  @Throws(
+    NoSuchAlgorithmException::class,
+    NoSuchProviderException::class,
+    InvalidAlgorithmParameterException::class
+  )
+  fun generatePrivateKeyEC(
+    ecCurve: ECCurve = ECCurve.SECP256R1,
+  ): PrivateKey {
+    return generateKeyPairEC(ecCurve).private
   }
 
   /**
@@ -297,22 +266,6 @@ object KeyUtils {
     val keyPairGenerator = KeyPairGenerator.getInstance("DH")
     keyPairGenerator.initialize(keySize, SecureRandom())
     return keyPairGenerator.generateKeyPair()
-  }
-
-  /**
-   * Checks whether the provided private key is stored in the Android Keystore.
-   *
-   * This method checks the provider of the private key to determine if it belongs to the
-   * Android Keystore. Private keys generated or imported into the Android Keystore will have
-   * a provider name of "AndroidKeyStore". This is useful for ensuring that keys stored securely
-   * on the device are being used, which can be critical for sensitive operations such as signing
-   * or encryption in a secure environment.
-   *
-   * @param privateKey The private key to check.
-   * @return True if the private key is from the Android Keystore, false otherwise.
-   */
-  fun isPrivateKeyAndroidKeyStore(privateKey: PrivateKey): Boolean {
-    return privateKey.algorithm == "AndroidKeyStore"
   }
 
   /**
@@ -792,4 +745,144 @@ object KeyUtils {
     }
     return null
   }
+
+  /**
+   * Generates an AES symmetric encryption key and stores it in the Android Keystore.
+   *
+   * @param keySize The size of the AES key in bits (128 or 256). Default is 256.
+   * @param keyStoreAlias The alias under which to store the key in the Android Keystore.
+   * @param keyStoreKeyPurposes The purposes for the key (default is encryption and decryption).
+   * @return The generated AES SecretKey.
+   * @throws IllegalStateException If there is an error generating the key.
+   */
+  @JvmStatic
+  @Throws(
+    IllegalStateException::class,
+  )
+  fun generateSecretKeyAES(
+    keySize: Int = 256, // Default to a strong AES encryption value
+    keyStoreAlias: String,
+    keyStoreKeyPurposes: Int = KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+  ): SecretKey {
+    require(keySize == 128 || keySize == 256) { "AES key size must be 128 or 256 bits when using the Android Keystore." }
+    require(keyStoreKeyPurposes > 0) { "Key purposes must be greater than 0." }
+
+    try {
+      // Generate key in Android Keystore
+      val keyGen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+      val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+        keyStoreAlias,
+        keyStoreKeyPurposes
+      )
+        .setKeySize(keySize)
+        .setBlockModes(
+          KeyProperties.BLOCK_MODE_GCM,
+          KeyProperties.BLOCK_MODE_CBC
+        ) // Set block modes directly
+        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE) // Set encryption padding directly
+        .setRandomizedEncryptionRequired(true)
+        .build()
+
+      keyGen.init(keyGenParameterSpec)
+      return keyGen.generateKey()
+    } catch (e: Exception) {
+      throw IllegalStateException("Failed to initialize key generator for Android Keystore", e)
+    }
+  }
+
+  /**
+   * Generates an AES symmetric encryption key. If `keyStoreAlias` is provided, the key is stored in the Android Keystore.
+   *
+   * @param keySize The size of the AES key in bits (128, 192, or 256). Default is 256.
+   * @return The generated AES key.
+   * @throws NoSuchAlgorithmException If the AES algorithm is not available.
+   * @throws NoSuchProviderException If the Android Keystore provider is not available.
+   * @throws InvalidAlgorithmParameterException If the KeyGenParameterSpec is invalid.
+   * @throws IllegalArgumentException If the key size is invalid.
+   */
+  @JvmStatic
+  @Throws(
+    NoSuchAlgorithmException::class,
+    NoSuchProviderException::class,
+    InvalidAlgorithmParameterException::class
+  )
+  fun generateSecretKeyAES(
+    keySize: Int = 256, // Default to a strong AES encryption value
+  ): SecretKey {
+    require(keySize == 128 || keySize == 192 || keySize == 256) { "AES key size must be 128, 192, or 256 bits." }
+
+    // Generate a normal AES key
+    val keyGen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES)
+    keyGen.init(keySize, SecureRandom())
+    return keyGen.generateKey()
+  }
+
+  /**
+   * Generates an HMAC-SHA256 key. If `keyStoreAlias` is provided, the key is stored in the Android Keystore.
+   *
+   * @param keyStoreAlias The alias for storing the key in the Android Keystore. If null, a normal HMAC-SHA256 key is generated.
+   * @param keyStoreKeyPurposes The intended purposes for the key (default is signing and verifying).
+   * @return The generated HMAC-SHA256 key.
+   * @throws NoSuchAlgorithmException If the HmacSHA256 algorithm is not available.
+   * @throws NoSuchProviderException If the Android Keystore provider is not available.
+   * @throws InvalidAlgorithmParameterException If the KeyGenParameterSpec is invalid.
+   * @throws IllegalArgumentException If the key purposes are invalid.
+   */
+  @JvmStatic
+  @Throws(
+    NoSuchAlgorithmException::class,
+    NoSuchProviderException::class,
+    InvalidAlgorithmParameterException::class
+  )
+  fun generateSecretKeyHmacSHA256(
+    keyStoreAlias: String? = null,
+    keyStoreKeyPurposes: Int = KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+  ): SecretKey {
+    val keyGenerator: KeyGenerator = if (!keyStoreAlias.isNullOrBlank()) {
+      require(keyStoreKeyPurposes > 0) { "Key purposes must be greater than 0." }
+
+      try {
+        // Generate key in Android Keystore
+        val keyGen =
+          KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_HMAC_SHA256, "AndroidKeyStore")
+        val keyGenParameterSpec = KeyGenParameterSpec.Builder(
+          keyStoreAlias,
+          keyStoreKeyPurposes
+        )
+          .setDigests(KeyProperties.DIGEST_SHA256)
+          .build()
+
+        keyGen.init(keyGenParameterSpec)
+        keyGen
+      } catch (e: Exception) {
+        throw IllegalStateException("Failed to initialize key generator for Android Keystore", e)
+      }
+    } else {
+      // Generate a normal HMAC-SHA256 key
+      val keyGen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_HMAC_SHA256)
+      keyGen.init(SecureRandom())
+      keyGen
+    }
+
+    return keyGenerator.generateKey()
+  }
+
+  /**
+   * Gets the KeyPair for XEC algorithms (X25519) using reflection.
+   * This method avoids directly referencing classes that may not be available in lower SDK versions.
+   */
+  @Suppress("SameParameterValue")
+  private fun getXECKeyPair(algorithm: CryptographicAlgorithm): KeyPair? {
+    require(algorithm == CryptographicAlgorithm.X25519) { "Unsupported algorithm: $algorithm" }
+
+    return try {
+      val keyPairGeneratorClass = Class.forName("java.security.KeyPairGenerator")
+      val keyPairGenerator =
+        keyPairGeneratorClass.getMethod("getInstance", String::class.java).invoke(null, algorithm)
+      keyPairGeneratorClass.getMethod("generateKeyPair").invoke(keyPairGenerator) as KeyPair
+    } catch (e: Exception) {
+      throw UnsupportedKeyAlgorithmException("Failed to generate XEC public key for $algorithm", e)
+    }
+  }
+
 }

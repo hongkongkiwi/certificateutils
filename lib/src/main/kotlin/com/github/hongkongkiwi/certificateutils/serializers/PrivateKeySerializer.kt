@@ -1,5 +1,7 @@
-import android.util.Log
-import com.github.hongkongkiwi.certificateutils.CertificateUtils
+package com.github.hongkongkiwi.certificateutils.serializers
+
+import com.github.hongkongkiwi.certificateutils.AndroidKeyStoreUtils
+import com.github.hongkongkiwi.certificateutils.PEMUtils
 import com.github.hongkongkiwi.certificateutils.extensions.getAndroidKeyStoreAlias
 import com.github.hongkongkiwi.certificateutils.extensions.isFromAndroidKeyStore
 import com.github.hongkongkiwi.certificateutils.extensions.isPrivateKeyPem
@@ -9,8 +11,9 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import java.security.KeyStore
+import java.security.KeyStoreException
 import java.security.PrivateKey
+import java.security.InvalidKeyException
 
 class PrivateKeySerializer : KSerializer<PrivateKey> {
 
@@ -18,47 +21,45 @@ class PrivateKeySerializer : KSerializer<PrivateKey> {
     PrimitiveSerialDescriptor("PrivateKey", PrimitiveKind.STRING)
 
   override fun serialize(encoder: Encoder, value: PrivateKey) {
-    // Check if the private key is from the Android Keystore
-    if (value.isFromAndroidKeyStore()) {
-      // Get the alias of the PrivateKey
-      val alias = value.getAndroidKeyStoreAlias()
-        ?: throw IllegalArgumentException("Cannot serialize a PrivateKey from the Android Keystore without an alias.")
-
-      // Serialize the alias as a string
-      encoder.encodeString(alias)
-    } else {
-      // If not from the Android Keystore, serialize as PEM if in PKCS#8 format
-      if (value.format == "PKCS#8") {
-        val pemString = CertificateUtils.getPrivateKeyPem(value)
-        encoder.encodeString(pemString)
+    try {
+      if (value.isFromAndroidKeyStore()) {
+        val alias = value.getAndroidKeyStoreAlias()
+          ?: throw KeyStoreException("Alias is missing for the PrivateKey from the Android Keystore.")
+        encoder.encodeString(alias)
       } else {
-        throw IllegalArgumentException("Unsupported key format: ${value.format}")
+        when (value.format) {
+          "PKCS#8" -> encoder.encodeString(PEMUtils.getPrivateKeyPem(value, format = "PKCS#8"))
+          "PKCS#1" -> encoder.encodeString(PEMUtils.getPrivateKeyPem(value, format = "PKCS#1"))
+          "OpenSSH" -> encoder.encodeString(PEMUtils.getOpenSSHPem(value))
+          else -> throw InvalidKeyException("Unsupported key format: ${value.format}")
+        }
       }
+    } catch (e: Exception) {
+      throw IllegalArgumentException("Failed to serialize PrivateKey: ${e.message}", e)
     }
   }
 
   override fun deserialize(decoder: Decoder): PrivateKey {
     val encoded = decoder.decodeString()
 
-    // Check if the encoded string is a valid PEM
-    if (encoded.isPrivateKeyPem()) {
+    return if (encoded.isPrivateKeyPem()) {
       try {
-        // Deserialize the PEM string to PrivateKey
-        return CertificateUtils.parsePrivateKeyPem(encoded).first()
+        PEMUtils.parsePrivateKeyPem(encoded).first()
       } catch (e: Exception) {
-        throw IllegalArgumentException("Failed to parse PEM: ${e.message}", e)
+        throw InvalidKeyException("Failed to parse the PrivateKey from PEM: ${e.message}", e)
       }
     } else if (encoded.isNotEmpty()) {
-      // Assume it's a keystore alias and retrieve the PrivateKey
       try {
-        val keyStore = KeyStore.getInstance("AndroidKeyStore")
-        keyStore.load(null)
-        return keyStore.getKey(encoded, null) as PrivateKey
+        val privateKey = AndroidKeyStoreUtils.getPrivateKey(encoded)
+          ?: throw KeyStoreException("No PrivateKey found for alias: '$encoded'. Ensure the alias exists in the Android Keystore.")
+        privateKey
+      } catch (e: KeyStoreException) {
+        throw KeyStoreException("Keystore access failed: ${e.message}", e)
       } catch (e: Exception) {
-        throw IllegalArgumentException("Failed to retrieve PrivateKey from Android Keystore using alias: $encoded", e)
+        throw IllegalArgumentException("Failed to retrieve PrivateKey from alias '$encoded': ${e.message}", e)
       }
     } else {
-      throw IllegalArgumentException("Invalid PEM or keystore alias format.")
+      throw IllegalArgumentException("Empty or invalid input for PEM or keystore alias.")
     }
   }
 }

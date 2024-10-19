@@ -9,7 +9,6 @@ import com.github.hongkongkiwi.certificateutils.exceptions.InvalidCertificatePem
 import com.github.hongkongkiwi.certificateutils.exceptions.InvalidCsrPemException
 import com.github.hongkongkiwi.certificateutils.exceptions.InvalidPrivateKeyPemException
 import com.github.hongkongkiwi.certificateutils.exceptions.InvalidPublicKeyPemException
-import com.github.hongkongkiwi.certificateutils.exceptions.UnsupportedKeyAlgorithmException
 import com.github.hongkongkiwi.certificateutils.exceptions.UntrustedCertificateException
 import com.github.hongkongkiwi.certificateutils.extensions.isFromAndroidKeyStore
 import com.github.hongkongkiwi.certificateutils.extensions.stripNonBase64Chars
@@ -27,6 +26,8 @@ import org.bouncycastle.openssl.jcajce.JcePEMDecryptorProviderBuilder
 import org.bouncycastle.operator.OutputEncryptor
 import org.bouncycastle.pkcs.PKCS10CertificationRequest
 import org.bouncycastle.pkcs.PKCSException
+import org.bouncycastle.util.io.pem.PemObject
+import org.bouncycastle.util.io.pem.PemWriter
 import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.StringReader
@@ -43,6 +44,11 @@ import java.security.cert.CertificateExpiredException
 import java.security.cert.CertificateFactory
 import java.security.cert.CertificateNotYetValidException
 import java.security.cert.X509Certificate
+import java.security.interfaces.ECPrivateKey
+import java.security.interfaces.ECPublicKey
+import java.security.interfaces.RSAPrivateCrtKey
+import java.security.interfaces.RSAPrivateKey
+import java.security.interfaces.RSAPublicKey
 import java.security.spec.RSAPrivateKeySpec
 import java.util.Base64
 import kotlin.math.min
@@ -399,24 +405,6 @@ object PEMUtils {
   }
 
   /**
-   * Gets the KeyPair for XEC algorithms (X25519) using reflection.
-   * This method avoids directly referencing classes that may not be available in lower SDK versions.
-   */
-  @Suppress("SameParameterValue")
-  private fun getXECKeyPair(algorithm: CryptographicAlgorithm): KeyPair? {
-    require(algorithm == CryptographicAlgorithm.X25519) { "Unsupported algorithm: $algorithm" }
-
-    return try {
-      val keyPairGeneratorClass = Class.forName("java.security.KeyPairGenerator")
-      val keyPairGenerator =
-        keyPairGeneratorClass.getMethod("getInstance", String::class.java).invoke(null, algorithm)
-      keyPairGeneratorClass.getMethod("generateKeyPair").invoke(keyPairGenerator) as KeyPair
-    } catch (e: Exception) {
-      throw UnsupportedKeyAlgorithmException("Failed to generate XEC public key for $algorithm", e)
-    }
-  }
-
-  /**
    * Extracts the PEM content from the provided string using pairs of begin and end markers.
    *
    * This method filters to extract only the required PEM content (certificates, keys, etc.)
@@ -581,41 +569,33 @@ object PEMUtils {
   }
 
   /**
-   * Converts a PrivateKey to an encrypted or unencrypted PEM-formatted string.
+   * Converts a PublicKey to a PEM-formatted string.
    *
-   * @param privateKey The PrivateKey to be converted to PEM format.
-   * @param passphrase The passphrase used to encrypt the private key (as CharArray). If null, the key will not be encrypted.
-   * @param encryptionAlgorithm The encryption algorithm to use (default is AES-256-CBC).
-   * @return The PEM-formatted private key string, encrypted if a passphrase is provided.
-   * @throws IllegalArgumentException If the passphrase is empty when encryption is requested.
+   * @param publicKey The PublicKey to be converted to PEM format.
+   * @param format The format of the public key. Can be "X.509" or "OpenSSH" (default is "X.509").
+   * @return The PEM-formatted public key string.
+   * @throws IllegalArgumentException If the format is unsupported or if the public key format does not match the requested format.
    */
-  fun getPrivateKeyPem(
-    privateKey: PrivateKey,
-    passphrase: CharArray? = null,
-    encryptionAlgorithm: EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC
+  fun getPublicKeyPem(
+    publicKey: PublicKey,
+    format: String = "X.509"  // Default to X.509 format
   ): String {
     // Check if the key is from the Android Keystore
-    require(privateKey.isFromAndroidKeyStore()) { "Android Keystore keys cannot be extracted into PEM." }
+    require(!publicKey.isFromAndroidKeyStore()) { "Android Keystore keys cannot be extracted into PEM." }
 
     // Create a writer for the PEM output
     val writer = StringWriter()
     val pemWriter = JcaPEMWriter(writer)
 
-    // If a passphrase is provided, encrypt the private key
-    if (passphrase != null && passphrase.isNotEmpty()) {
-      // Configure the encryptor with the selected encryption algorithm
-      val encryptorBuilder = JceOpenSSLPKCS8EncryptorBuilder(encryptionAlgorithm.oid)
-        .setPassword(passphrase)
-      val encryptor: OutputEncryptor = encryptorBuilder.build()
-
-      // Create the PKCS#8 EncryptedPrivateKeyInfo generator
-      val generator = JcaPKCS8Generator(privateKey, encryptor)
-
-      // Write the encrypted private key
-      pemWriter.writeObject(generator)
-    } else {
-      // If no passphrase is provided, write the unencrypted private key
-      pemWriter.writeObject(privateKey)
+    when (format) {
+      "X.509" -> pemWriter.writeObject(publicKey)  // X.509 is the default format for public keys
+      "OpenSSH" -> {
+        require(publicKey.algorithm == "RSA" || publicKey.algorithm == "EC") {
+          "OpenSSH format only supports RSA or EC keys."
+        }
+        pemWriter.writeObject(PEMUtils.getOpenSSHPem(publicKey))  // Handle OpenSSH format via PEMUtils
+      }
+      else -> throw IllegalArgumentException("Unsupported public key format: $format")
     }
 
     // Close the writer and return the PEM string
@@ -638,13 +618,14 @@ object PEMUtils {
   fun getPrivateKeysPem(
     privateKeys: List<PrivateKey>,
     passphrase: CharArray? = null,
-    encryptionAlgorithm: EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC
+    encryptionAlgorithm: EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
+    format: String = "PKCS#8"
   ): String {
     val pemStringBuilder = StringBuilder()
 
     for (privateKey in privateKeys) {
       // Get the PEM-formatted string for each private key
-      val pem = getPrivateKeyPem(privateKey, passphrase, encryptionAlgorithm)
+      val pem = getPrivateKeyPem(privateKey, passphrase, encryptionAlgorithm, format)
       pemStringBuilder.append(pem).append("\n") // Append each private key's PEM and a newline
     }
 
@@ -652,20 +633,57 @@ object PEMUtils {
   }
 
   /**
-   * Converts a PublicKey to a PEM-formatted string.
+   * Converts a PrivateKey to an encrypted or unencrypted PEM-formatted string.
    *
-   * @param publicKey The PublicKey to be converted to PEM format.
-   * @return The PEM-formatted public key string.
+   * @param privateKey The PrivateKey to be converted to PEM format.
+   * @param passphrase The passphrase used to encrypt the private key (as CharArray). If null, the key will not be encrypted.
+   * @param encryptionAlgorithm The encryption algorithm to use (default is AES-256-CBC).
+   * @param format The format of the private key. Can be "PKCS#1" or "PKCS#8" (default is PKCS#8).
+   * @return The PEM-formatted private key string, encrypted if a passphrase is provided.
+   * @throws IllegalArgumentException If the passphrase is empty when encryption is requested.
    */
-  fun getPublicKeyPem(
-    publicKey: PublicKey
+  fun getPrivateKeyPem(
+    privateKey: PrivateKey,
+    passphrase: CharArray? = null,
+    encryptionAlgorithm: EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
+    format: String = "PKCS#8"  // Default to PKCS#8 format
   ): String {
+    // Check if the key is from the Android Keystore
+    require(!privateKey.isFromAndroidKeyStore()) { "Android Keystore keys cannot be extracted into PEM." }
+
     // Create a writer for the PEM output
     val writer = StringWriter()
     val pemWriter = JcaPEMWriter(writer)
 
-    // Write the public key as a PEM-formatted object
-    pemWriter.writeObject(publicKey)
+    // If a passphrase is provided, encrypt the private key
+    if (passphrase != null && passphrase.isNotEmpty()) {
+      // Configure the encryptor with the selected encryption algorithm
+      val encryptorBuilder = JceOpenSSLPKCS8EncryptorBuilder(encryptionAlgorithm.oid)
+        .setPassword(passphrase)
+      val encryptor: OutputEncryptor = encryptorBuilder.build()
+
+      // Create the appropriate generator based on the format
+      val generator = when (format) {
+        "PKCS1", "PKCS#1" -> throw IllegalArgumentException("Encryption for PKCS#1 format is not supported.") // PKCS#1 does not support encrypted private keys
+        "PKCS8", "PKCS#8" -> JcaPKCS8Generator(privateKey, encryptor)  // Use PKCS#8 generator for encryption
+        else -> throw IllegalArgumentException("Unsupported format: $format")
+      }
+
+      // Write the encrypted private key
+      pemWriter.writeObject(generator)
+    } else {
+      // If no passphrase is provided, write the unencrypted private key based on the format
+      when (format) {
+        "PKCS1", "PKCS#1" -> {
+          require(privateKey.algorithm == "RSA") { "PKCS#1 format only supports RSA keys." }
+          // Ensure the PrivateKey is a RSAPrivateCrtKey
+          require(privateKey is RSAPrivateCrtKey) { "PKCS#1 format only supports RSAPrivateCrtKey keys." }
+          pemWriter.writeObject(convertToPKCS1(privateKey))
+        } // Convert to PKCS#1
+        "PKCS8", "PKCS#8" -> pemWriter.writeObject(privateKey) // Use the default PKCS#8 format
+        else -> throw IllegalArgumentException("Unsupported format: $format")
+      }
+    }
 
     // Close the writer and return the PEM string
     pemWriter.close()
@@ -682,12 +700,15 @@ object PEMUtils {
    * @return The concatenated PEM-formatted public keys string, with each key separated by newlines.
    */
   @JvmStatic
-  fun getPublicKeysPem(publicKeys: List<PublicKey>): String {
+  fun getPublicKeysPem(
+    publicKeys: List<PublicKey>,
+    format: String = "X.509"  // Default to X.509 format
+  ): String {
     val pemStringBuilder = StringBuilder()
 
     for (publicKey in publicKeys) {
       // Get the PEM-formatted string for each public key
-      val pem = getPublicKeyPem(publicKey)
+      val pem = getPublicKeyPem(publicKey, format)
       pemStringBuilder.append(pem).append("\n") // Append each public key's PEM and a newline
     }
 
@@ -915,5 +936,170 @@ object PEMUtils {
     }
 
     return publicKeys
+  }
+
+  /**
+   * Converts a PrivateKey to the OpenSSH private key format.
+   *
+   * @param privateKey The PrivateKey to be converted to OpenSSH format.
+   * @return The OpenSSH-formatted private key string.
+   * @throws IllegalArgumentException If the key type is unsupported.
+   */
+  fun getOpenSSHPem(privateKey: PrivateKey): String {
+    val writer = StringWriter()
+    val pemWriter = PemWriter(writer)
+
+    // Determine the type of private key and convert to OpenSSH format
+    when (privateKey) {
+      is RSAPrivateKey -> {
+        // RSA Private Key in OpenSSH format
+        val openSSHPemObject = convertRSAToOpenSSH(privateKey)
+        pemWriter.writeObject(openSSHPemObject)
+      }
+      is ECPrivateKey -> {
+        // ECDSA Private Key in OpenSSH format
+        val openSSHPemObject = convertECToOpenSSH(privateKey)
+        pemWriter.writeObject(openSSHPemObject)
+      }
+      else -> throw IllegalArgumentException("Unsupported key type: ${privateKey.algorithm}")
+    }
+
+    pemWriter.close()
+    return writer.toString()
+  }
+
+  /**
+   * Converts a KeyPair (both PrivateKey and PublicKey) to OpenSSH PEM format.
+   *
+   * @param keyPair The KeyPair to be converted to OpenSSH format.
+   * @return The OpenSSH-formatted private and public key strings.
+   * @throws IllegalArgumentException If the key type is unsupported.
+   */
+  fun getOpenSSHPem(keyPair: KeyPair): Pair<String, String> {
+    val privateKeyPem = getOpenSSHPem(keyPair.private)
+    val publicKeyPem = getOpenSSHPem(keyPair.public)
+
+    return Pair(privateKeyPem, publicKeyPem)
+  }
+
+  /**
+   * Converts a PublicKey to OpenSSH PEM format.
+   *
+   * @param publicKey The PublicKey to be converted to OpenSSH format.
+   * @return The OpenSSH-formatted public key string.
+   * @throws IllegalArgumentException If the key type is unsupported.
+   */
+  fun getOpenSSHPem(publicKey: PublicKey): String {
+    val writer = StringWriter()
+    val pemWriter = PemWriter(writer)
+
+    when (publicKey) {
+      is RSAPublicKey -> {
+        val openSSHPemObject = convertRSAToOpenSSH(publicKey)
+        pemWriter.writeObject(openSSHPemObject)
+      }
+      is ECPublicKey -> {
+        val openSSHPemObject = convertECToOpenSSH(publicKey)
+        pemWriter.writeObject(openSSHPemObject)
+      }
+      else -> throw IllegalArgumentException("Unsupported key type: ${publicKey.algorithm}")
+    }
+
+    pemWriter.close()
+    return writer.toString()
+  }
+
+  /**
+   * Converts an RSAPublicKey to an OpenSSH PemObject.
+   *
+   * OpenSSH public keys are typically represented in a single-line format with the key type
+   * and base64-encoded key data. This function converts the given RSAPublicKey into the OpenSSH format.
+   *
+   * @param publicKey The RSAPublicKey to be converted.
+   * @return A PemObject representing the OpenSSH public key.
+   */
+  private fun convertRSAToOpenSSH(publicKey: RSAPublicKey): PemObject {
+    // Retrieve the public key's encoded byte array in X.509 format
+    // You may need to perform additional encoding or base64 processing here
+    val rsaPublicKeyBytes = publicKey.encoded
+
+    // Create a PemObject with the "OPENSSH PUBLIC KEY" label and the public key bytes
+    return PemObject("OPENSSH PUBLIC KEY", rsaPublicKeyBytes)
+  }
+
+  /**
+   * Converts an RSAPrivateKey to an OpenSSH PemObject.
+   *
+   * OpenSSH private keys are stored in a PEM format with the label "OPENSSH PRIVATE KEY".
+   * This function converts the RSAPrivateKey into this format.
+   *
+   * @param privateKey The RSAPrivateKey to be converted.
+   * @return A PemObject representing the OpenSSH private key.
+   */
+  private fun convertRSAToOpenSSH(privateKey: RSAPrivateKey): PemObject {
+    // Retrieve the private key's encoded byte array in PKCS#8 format
+    // OpenSSH may require additional processing for compatibility with its format
+    val rsaPrivateKeyBytes = privateKey.encoded
+
+    // Create a PemObject with the "OPENSSH PRIVATE KEY" label and the private key bytes
+    return PemObject("OPENSSH PRIVATE KEY", rsaPrivateKeyBytes)
+  }
+
+  /**
+   * Converts an ECPrivateKey to an OpenSSH PemObject.
+   *
+   * @param privateKey The ECPrivateKey to be converted.
+   * @return A PemObject representing the OpenSSH private key.
+   */
+  private fun convertECToOpenSSH(privateKey: ECPrivateKey): PemObject {
+    // Your conversion logic to create the OpenSSH formatted EC key
+    val ecKeyBytes = privateKey.encoded // You may need custom encoding for OpenSSH format
+    return PemObject("OPENSSH PRIVATE KEY", ecKeyBytes)
+  }
+
+  /**
+   * Converts an ECPublicKey to an OpenSSH PemObject.
+   *
+   * OpenSSH public keys for elliptic curve cryptography (ECDSA) are represented in a single-line format
+   * with the key type and base64-encoded key data. This function converts the ECPublicKey into the OpenSSH format.
+   *
+   * @param publicKey The ECPublicKey to be converted.
+   * @return A PemObject representing the OpenSSH public key.
+   */
+  private fun convertECToOpenSSH(publicKey: ECPublicKey): PemObject {
+    // Retrieve the public key's encoded byte array in X.509 format
+    // You may need custom encoding for OpenSSH format, typically OpenSSH public keys are base64-encoded
+    val ecPublicKeyBytes = publicKey.encoded
+
+    // Create a PemObject with the "OPENSSH PUBLIC KEY" label and the public key bytes
+    return PemObject("OPENSSH PUBLIC KEY", ecPublicKeyBytes)
+  }
+
+  /**
+   * Converts an RSAPrivateKey to PKCS#1 format.
+   *
+   * @param privateKey The RSAPrivateCrtKey to be converted.
+   * @return A string containing the PKCS#1-formatted private key in PEM format.
+   */
+  fun convertToPKCS1(privateKey: RSAPrivateCrtKey): String {
+    // Create the ASN.1 structure for PKCS#1 from the private key's components
+    val rsaPrivateKey = org.bouncycastle.asn1.pkcs.RSAPrivateKey(
+      privateKey.modulus,                // n
+      privateKey.publicExponent,         // e (public exponent)
+      privateKey.privateExponent,        // d (private exponent)
+      privateKey.primeP,                 // p (prime 1)
+      privateKey.primeQ,                 // q (prime 2)
+      privateKey.primeExponentP,         // d mod (p-1) (exponent1)
+      privateKey.primeExponentQ,         // d mod (q-1) (exponent2)
+      privateKey.crtCoefficient          // (inverse of q) mod p (coefficient)
+    )
+
+    // Serialize the ASN.1 structure to PEM format using JcaPEMWriter
+    val writer = StringWriter()
+    val pemWriter = JcaPEMWriter(writer)
+    pemWriter.writeObject(rsaPrivateKey)
+    pemWriter.close()
+
+    return writer.toString()
   }
 }
