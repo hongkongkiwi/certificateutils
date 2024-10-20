@@ -1,5 +1,7 @@
 package com.github.hongkongkiwi.certificateutils.enums
 
+import java.util.Locale
+
 /**
  * Enum representing various cryptographic algorithms.
  *
@@ -14,7 +16,9 @@ enum class CryptographicAlgorithm {
   Ed448,      // Ed448 algorithm (Elliptic Curve)
   X25519,     // X25519 algorithm (Elliptic Curve)
   DH,         // Diffie-Hellman algorithm
-  ECDSA;      // Elliptic Curve Digital Signature Algorithm
+  ECDSA,      // Elliptic Curve Digital Signature Algorithm
+  AES,        // Advanced Encryption Standard (Symmetric Key Algorithm)
+  HMAC_SHA256; // HMAC with SHA-256 Hash Function
 
   companion object {
     /**
@@ -28,7 +32,7 @@ enum class CryptographicAlgorithm {
      * @throws IllegalArgumentException If the algorithm name is not recognized.
      */
     fun fromString(algorithmName: String): CryptographicAlgorithm {
-      return when (algorithmName) {
+      return when (algorithmName.uppercase(Locale.getDefault())) {
         "RSA" -> RSA
         "EC" -> EC
         "DSA" -> DSA
@@ -37,6 +41,8 @@ enum class CryptographicAlgorithm {
         "X25519" -> X25519
         "DH" -> DH
         "ECDSA" -> ECDSA
+        "AES" -> AES
+        "HMAC-SHA256" -> HMAC_SHA256
         else -> throw IllegalArgumentException("Unsupported algorithm: $algorithmName")
       }
     }
@@ -59,6 +65,8 @@ enum class CryptographicAlgorithm {
       X25519 -> "X25519"
       DH -> "DH"
       ECDSA -> "ECDSA"
+      AES -> "AES"
+      HMAC_SHA256 -> "HMAC-SHA256"
     }
   }
 
@@ -80,6 +88,8 @@ enum class CryptographicAlgorithm {
       X25519 -> "X25519 Algorithm (Elliptic Curve)"
       DH -> "Diffie-Hellman Algorithm"
       ECDSA -> "Elliptic Curve Digital Signature Algorithm"
+      AES -> "Advanced Encryption Standard (Symmetric Key Algorithm)"
+      HMAC_SHA256 -> "HMAC with SHA-256 Hash Function"
     }
   }
 
@@ -91,5 +101,20 @@ enum class CryptographicAlgorithm {
    */
   fun matches(algorithmName: String): Boolean {
     return this.toString().equals(algorithmName, ignoreCase = true)
+  }
+
+  /**
+   * Compares the current `CryptographicAlgorithm` with another string.
+   *
+   * This method compares the `other` string (which could be a plain string representing an algorithm name)
+   * with the current `CryptographicAlgorithm` enum's name (converted to a string).
+   * It provides an option to ignore case during the comparison.
+   *
+   * @param other The string to compare against the current algorithm's name. If `null`, the method returns `false`.
+   * @param ignoreCase If `true`, the comparison will ignore case differences. Defaults to `false`, meaning the comparison is case-sensitive.
+   * @return `true` if the `other` string matches the current algorithm's name, `false` otherwise.
+   */
+  fun equals(other: String?, ignoreCase: Boolean = false): Boolean {
+    return other?.equals(this.toString(), ignoreCase) == true
   }
 }

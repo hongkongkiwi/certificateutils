@@ -1,13 +1,17 @@
 package com.github.hongkongkiwi.certificateutils
 
 import android.annotation.SuppressLint
+import android.util.Log
 import com.github.hongkongkiwi.certificateutils.builders.*
 import com.github.hongkongkiwi.certificateutils.enums.*
 import com.github.hongkongkiwi.certificateutils.exceptions.*
+import com.github.hongkongkiwi.certificateutils.extensions.getPublicKey
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
+import org.bouncycastle.jce.ECNamedCurveTable
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.math.ec.ECPoint
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter
 import org.bouncycastle.operator.ContentSigner
 import org.bouncycastle.operator.OperatorCreationException
@@ -15,12 +19,17 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import org.bouncycastle.operator.jcajce.JcaContentVerifierProviderBuilder
 import org.bouncycastle.pkcs.PKCS10CertificationRequest
 import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder
+import java.security.spec.ECPoint as JavaECPoint
 import java.io.IOException
 import java.math.BigInteger
 import java.security.*
 import java.security.cert.*
+import java.security.interfaces.ECPrivateKey
+import java.security.interfaces.ECPublicKey
 import java.security.spec.*
 import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import java.util.Date
 import javax.net.ssl.TrustManagerFactory
@@ -33,6 +42,10 @@ object CertificateUtils {
   internal val TAG = CertificateUtils::class.java.simpleName
 
   init {
+    ensureBouncyCastleProvider()
+  }
+
+  fun ensureBouncyCastleProvider() {
     // Initialize BouncyCastle as a security provider
     if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
       Security.addProvider(BouncyCastleProvider())
@@ -57,16 +70,24 @@ object CertificateUtils {
     privateKey: PrivateKey,
     subjectName: X500Name = X500Name("CN=Self-Signed"),
     serialNumber: BigInteger = BigInteger.valueOf(System.currentTimeMillis()),
-    validUntil: Date = Date.from(Instant.now().plus(1, ChronoUnit.YEARS)),
+    validUntil: Date = Date.from(
+      LocalDateTime.now()
+        .plusYears(1)  // Add 1 year
+        .toInstant(ZoneOffset.UTC)  // Convert back to Instant
+    ),
     signatureAlgorithm: String = "SHA256"
   ): X509Certificate {
     try {
       require(signatureAlgorithm.isNotBlank()) { "Signature algorithm cannot be blank."}
 
+      val keyFactoryAlgo = if (privateKey.algorithm === "ECDSA") {
+        "EC"
+      } else {
+        privateKey.algorithm
+      }
+
       // Extract the public key from the provided private key
-      val publicKey = KeyFactory.getInstance(privateKey.algorithm).generatePublic(
-        X509EncodedKeySpec(privateKey.encoded)
-      )
+      val publicKey = privateKey.getPublicKey()
 
       // Create the certificate builder with subject and issuer as "Self-Signed"
       val certBuilder = JcaX509v3CertificateBuilder(
@@ -94,7 +115,7 @@ object CertificateUtils {
       // Convert and return the generated certificate
       return JcaX509CertificateConverter().getCertificate(certBuilder.build(signer))
     } catch (e: Exception) {
-      throw SelfSignedCertificateGenerationException("Failed to generate self-signed certificate", e)
+      throw SelfSignedCertificateGenerationException("Failed to generate self-signed certificate: ${e.message}", e)
     }
   }
 

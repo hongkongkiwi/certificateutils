@@ -30,6 +30,8 @@ import javax.crypto.SecretKey
 object AndroidKeyStoreUtils {
   internal val TAG = AndroidKeyStoreUtils::class.java.simpleName
 
+  val KEYSTORE_ALIAS_MARKERS = Pair("-----BEGIN KEYSTORE ALIAS-----", "-----END KEYSTORE ALIAS-----")
+
   init {
     // Initialize BouncyCastle as a security provider
     if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
@@ -43,7 +45,6 @@ object AndroidKeyStoreUtils {
    * @param alias The alias under which to store the private key in the Android Keystore.
    * @param keyPair The key pair to be imported.
    * @param certificateChain The certificate chain (X.509 certificates) associated with the private key.
-   * @param password An optional password for protecting the key entry.
    * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
    * @throws PrivateKeyImportException If there is any issue with importing the private key.
    */
@@ -55,7 +56,6 @@ object AndroidKeyStoreUtils {
     alias: String,
     keyPair: KeyPair,
     certificateChain: List<Certificate>,
-    password: CharArray? = null,
     keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
@@ -72,7 +72,7 @@ object AndroidKeyStoreUtils {
       keyStore.setKeyEntry(
         alias,
         keyPair.private,
-        password.takeIf { it != null && it.isNotEmpty() },
+        null,
         certificateChain.toTypedArray()
       )
     } catch (e: Exception) {
@@ -88,7 +88,6 @@ object AndroidKeyStoreUtils {
    *
    * @param alias The alias under which the private key is stored in the Android Keystore.
    * @param certificateChain The new certificate chain (X.509 certificates) to associate with the private key.
-   * @param password An optional password for protecting the key entry.
    * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
    * @throws InvalidCertificatePemException If the certificate chain is invalid.
    * @throws KeyPairMismatchException If the private key and certificate's public key do not match.
@@ -103,7 +102,6 @@ object AndroidKeyStoreUtils {
   fun updateCertificateChain(
     alias: String,
     certificateChain: List<Certificate>,
-    password: CharArray? = null,
     keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
@@ -128,7 +126,7 @@ object AndroidKeyStoreUtils {
       }
 
       // Update the certificate chain associated with the private key
-      keyStore.setKeyEntry(alias, privateKey, password, certificateChain.toTypedArray())
+      keyStore.setKeyEntry(alias, privateKey, null, certificateChain.toTypedArray())
     } catch (e: Exception) {
       throw Exception("Failed to update certificate chain in the Keystore: ${e.message}", e)
     }
@@ -140,7 +138,6 @@ object AndroidKeyStoreUtils {
    *
    * @param alias The alias under which the private key is stored in the Android Keystore.
    * @param newEndEntityCertificate The new end-entity certificate (X.509 certificate) to associate with the private key.
-   * @param password An optional password for protecting the key entry.
    * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
    * @throws InvalidCertificatePemException If the new certificate is invalid.
    * @throws KeyPairMismatchException If the private key and new certificate's public key do not match.
@@ -155,7 +152,6 @@ object AndroidKeyStoreUtils {
   fun updateEndEntityCertificate(
     alias: String,
     newEndEntityCertificate: Certificate,
-    password: CharArray? = null,
     keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
@@ -165,7 +161,7 @@ object AndroidKeyStoreUtils {
       }
 
       // Retrieve the existing private key from the keystore
-      val privateKey = keyStore.getKey(alias, password) as? PrivateKey
+      val privateKey = keyStore.getKey(alias, null) as? PrivateKey
         ?: throw InvalidPrivateKeyPemException("No private key found under alias: $alias")
       val publicKey = (keyStore.getCertificate(alias) as? X509Certificate)?.publicKey
         ?: throw InvalidPrivateKeyPemException("No certificate found under alias: $alias")
@@ -188,7 +184,7 @@ object AndroidKeyStoreUtils {
         listOf(newEndEntityCertificate) + existingCertificateChain.drop(1)
 
       // Update the certificate chain in the keystore while keeping the private key
-      keyStore.setKeyEntry(alias, privateKey, password, updatedCertificateChain.toTypedArray())
+      keyStore.setKeyEntry(alias, privateKey, null, updatedCertificateChain.toTypedArray())
     } catch (e: Exception) {
       throw Exception("Failed to update end-entity certificate in the Keystore: ${e.message}", e)
     }
@@ -200,7 +196,6 @@ object AndroidKeyStoreUtils {
    *
    * @param alias The alias under which the private key is stored in the Android Keystore.
    * @param newCACertificateChain The new intermediate and CA certificates (X.509 certificates) to associate with the private key.
-   * @param password An optional password for protecting the key entry.
    * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
    * @throws InvalidCertificatePemException If the new certificate chain is invalid.
    * @throws InvalidPrivateKeyPemException If no private key is found under the alias.
@@ -215,7 +210,6 @@ object AndroidKeyStoreUtils {
   fun updateCACertificates(
     alias: String,
     newCACertificateChain: List<Certificate>,
-    password: CharArray? = null,
     keyStore: KeyStore = getAndroidKeyStoreInstance()
   ) {
     try {
@@ -225,7 +219,7 @@ object AndroidKeyStoreUtils {
       }
 
       // Retrieve the existing private key from the keystore
-      val privateKey = keyStore.getKey(alias, password) as? PrivateKey
+      val privateKey = keyStore.getKey(alias, null) as? PrivateKey
         ?: throw InvalidPrivateKeyPemException("No private key found under alias: $alias")
 
       // Retrieve the existing end-entity certificate
@@ -241,7 +235,7 @@ object AndroidKeyStoreUtils {
       val updatedCertificateChain = listOf(endEntityCertificate) + newCACertificateChain
 
       // Update the certificate chain in the keystore while keeping the private key
-      keyStore.setKeyEntry(alias, privateKey, password, updatedCertificateChain.toTypedArray())
+      keyStore.setKeyEntry(alias, privateKey, null, updatedCertificateChain.toTypedArray())
     } catch (e: InvalidCertificatePemException) {
       throw e // rethrow known certificate exceptions
     } catch (e: InvalidPrivateKeyPemException) {
@@ -277,6 +271,48 @@ object AndroidKeyStoreUtils {
     } catch (e: Exception) {
       throw KeyStoreException(
         "Failed to remove key alias '$alias' from the Android Keystore: ${e.message}",
+        e
+      )
+    }
+  }
+
+  /**
+   * Removes a key alias from the Android Keystore if it exists.
+   *
+   * @param privateKey The [PrivateKey] to remove.
+   * @param keyStore An optional KeyStore instance. If null, the Android Keystore will be initialized.
+   * @throws KeyStoreException If there is an issue accessing the Keystore or removing the alias.
+   */
+  @JvmStatic
+  @Throws(
+    KeyStoreException::class,
+  )
+  fun removePrivateKey(
+    privateKey: PrivateKey,
+    keyStore: KeyStore = getAndroidKeyStoreInstance()
+  ) {
+    try {
+      require(isFromAndroidKeyStore(privateKey)) { "Provided private key is not from the Android Keystore." }
+
+      // Iterate through all aliases in the Keystore
+      val aliases = keyStore.aliases()
+      while (aliases.hasMoreElements()) {
+        val alias = aliases.nextElement()
+
+        // Retrieve the key associated with this alias
+        val key = keyStore.getKey(alias, null)
+        if (key is PrivateKey && key == privateKey) {
+          // We found the alias that matches the PrivateKey
+          try {
+            removeKeyAlias(alias, keyStore)
+          } catch (e: Exception) {
+            // Ignore any errors when removing
+          }
+        }
+      }
+    } catch (e: Exception) {
+      throw KeyStoreException(
+        "Failed to remove privateKey from the Android Keystore: ${e.message}",
         e
       )
     }
@@ -464,6 +500,7 @@ object AndroidKeyStoreUtils {
         ) // Set block modes directly
         .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE) // Set encryption padding directly
         .setRandomizedEncryptionRequired(true)
+        .setUserPresenceRequired(false)
         .build()
 
       keyGen.init(keyGenParameterSpec)
@@ -721,6 +758,7 @@ object AndroidKeyStoreUtils {
     )
       .setAlgorithmParameterSpec(ECGenParameterSpec(ecCurve.toString()))
       .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
+      .setUserPresenceRequired(false)
       .build()
 
     keyPairGenerator.initialize(keyGenParameterSpec)
@@ -779,12 +817,13 @@ object AndroidKeyStoreUtils {
       keyStoreKeyPurposes
     )
       .setKeySize(2048) // Android Keystore supports only 2048-bit RSA
-      .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512) // Set directly
+      .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA512)
       .setEncryptionPaddings(
         KeyProperties.ENCRYPTION_PADDING_RSA_PKCS1,
         KeyProperties.ENCRYPTION_PADDING_RSA_OAEP
       ) // Set directly
-      .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1) // Set directly
+      .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+      .setUserPresenceRequired(false)
       .build()
 
     keyPairGenerator.initialize(keyGenParameterSpec)

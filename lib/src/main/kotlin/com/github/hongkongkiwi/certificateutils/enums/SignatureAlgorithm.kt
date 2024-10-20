@@ -3,7 +3,7 @@ package com.github.hongkongkiwi.certificateutils.enums
 /**
  * Enum representing the supported signature algorithms.
  */
-enum class SignatureAlgorithm(val algorithm: String) {
+enum class SignatureAlgorithm(private val algorithm: String) {
   // SHA-1 with DSA algorithm (considered weak).
   SHA1_WITH_DSA("SHA1withDSA"),
 

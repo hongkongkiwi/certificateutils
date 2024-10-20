@@ -1,5 +1,6 @@
 package com.github.hongkongkiwi.certificateutils
 
+import android.util.Log
 import com.github.hongkongkiwi.certificateutils.CertificateUtils.OID_SHA256_ECDSA
 import com.github.hongkongkiwi.certificateutils.CertificateUtils.OID_SHA256_RSA
 import com.github.hongkongkiwi.certificateutils.enums.CryptographicAlgorithm
@@ -10,11 +11,18 @@ import com.github.hongkongkiwi.certificateutils.exceptions.InvalidCsrPemExceptio
 import com.github.hongkongkiwi.certificateutils.exceptions.InvalidPrivateKeyPemException
 import com.github.hongkongkiwi.certificateutils.exceptions.InvalidPublicKeyPemException
 import com.github.hongkongkiwi.certificateutils.exceptions.UntrustedCertificateException
+import com.github.hongkongkiwi.certificateutils.extensions.getCurveName
 import com.github.hongkongkiwi.certificateutils.extensions.isFromAndroidKeyStore
 import com.github.hongkongkiwi.certificateutils.extensions.stripNonBase64Chars
+import org.bouncycastle.asn1.ASN1ObjectIdentifier
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo
+import org.bouncycastle.asn1.x509.AlgorithmIdentifier
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo
+import org.bouncycastle.asn1.x9.ECNamedCurveTable
+import org.bouncycastle.asn1.x9.X962Parameters
+import org.bouncycastle.asn1.x9.X9ECParameters
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.jce.spec.ECPrivateKeySpec
 import org.bouncycastle.openssl.PEMEncryptedKeyPair
 import org.bouncycastle.openssl.PEMKeyPair
 import org.bouncycastle.openssl.PEMParser
@@ -49,6 +57,7 @@ import java.security.interfaces.ECPublicKey
 import java.security.interfaces.RSAPrivateCrtKey
 import java.security.interfaces.RSAPrivateKey
 import java.security.interfaces.RSAPublicKey
+import java.security.spec.InvalidKeySpecException
 import java.security.spec.RSAPrivateKeySpec
 import java.util.Base64
 import kotlin.math.min
@@ -59,9 +68,7 @@ object PEMUtils {
 
   init {
     // Initialize BouncyCastle as a security provider
-    if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-      Security.addProvider(BouncyCastleProvider())
-    }
+    ensureBouncyCastleProvider()
   }
 
   // Individual Pair Definitions
@@ -361,12 +368,13 @@ object PEMUtils {
       when (CryptographicAlgorithm.fromString(privateKey.algorithm)) {
         CryptographicAlgorithm.RSA -> RSA_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.EC -> EC_PRIVATE_KEY_MARKERS
+        CryptographicAlgorithm.ECDSA -> EC_PRIVATE_KEY_MARKERS // ECDSA uses EC PEM markers
         CryptographicAlgorithm.DSA -> DSA_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.Ed25519 -> ED25519_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.Ed448 -> ED448_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.X25519 -> X25519_PRIVATE_KEY_MARKERS
         CryptographicAlgorithm.DH -> DH_PRIVATE_KEY_MARKERS
-        CryptographicAlgorithm.ECDSA -> EC_PRIVATE_KEY_MARKERS // ECDSA uses EC PEM markers
+        else -> throw IllegalArgumentException("Unsupported private key algorithm: ${privateKey.algorithm}")
       }
     } catch (e: IllegalArgumentException) {
       // Handle unsupported algorithm by returning generic markers or throwing an exception
@@ -391,12 +399,13 @@ object PEMUtils {
       when (CryptographicAlgorithm.fromString(publicKey.algorithm)) {
         CryptographicAlgorithm.RSA -> RSA_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.EC -> EC_PUBLIC_KEY_MARKERS
+        CryptographicAlgorithm.ECDSA -> EC_PUBLIC_KEY_MARKERS // ECDSA uses EC PEM markers
         CryptographicAlgorithm.DSA -> DSA_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.Ed25519 -> ED25519_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.Ed448 -> ED448_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.X25519 -> X25519_PUBLIC_KEY_MARKERS
         CryptographicAlgorithm.DH -> DH_PUBLIC_KEY_MARKERS
-        CryptographicAlgorithm.ECDSA -> EC_PUBLIC_KEY_MARKERS // ECDSA uses EC PEM markers
+        else -> throw IllegalArgumentException("Unsupported public key algorithm: ${publicKey.algorithm}")
       }
     } catch (e: IllegalArgumentException) {
       // Handle unsupported algorithm by returning generic markers or throwing an exception
@@ -505,8 +514,6 @@ object PEMUtils {
   }
 
 
-
-
   /**
    * Converts an X509Certificate to PEM format.
    *
@@ -595,6 +602,7 @@ object PEMUtils {
         }
         pemWriter.writeObject(PEMUtils.getOpenSSHPem(publicKey))  // Handle OpenSSH format via PEMUtils
       }
+
       else -> throw IllegalArgumentException("Unsupported public key format: $format")
     }
 
@@ -635,12 +643,16 @@ object PEMUtils {
   /**
    * Converts a PrivateKey to an encrypted or unencrypted PEM-formatted string.
    *
+   * This method converts a given private key into a PEM format string. If a passphrase is provided, the private key
+   * will be encrypted using the specified encryption algorithm, otherwise, it will be outputted in unencrypted PEM format.
+   *
    * @param privateKey The PrivateKey to be converted to PEM format.
-   * @param passphrase The passphrase used to encrypt the private key (as CharArray). If null, the key will not be encrypted.
+   * @param passphrase The passphrase used to encrypt the private key (as a CharArray). If null, the key will not be encrypted.
    * @param encryptionAlgorithm The encryption algorithm to use (default is AES-256-CBC).
-   * @param format The format of the private key. Can be "PKCS#1" or "PKCS#8" (default is PKCS#8).
+   * @param format The format of the private key. Supports "PKCS#1" for RSA keys or "PKCS#8" (default is PKCS#8).
    * @return The PEM-formatted private key string, encrypted if a passphrase is provided.
-   * @throws IllegalArgumentException If the passphrase is empty when encryption is requested.
+   * @throws IllegalArgumentException If the passphrase is empty when encryption is requested or if an unsupported format is specified.
+   * @throws IllegalArgumentException If the key is from the Android Keystore, as those keys cannot be extracted to PEM.
    */
   fun getPrivateKeyPem(
     privateKey: PrivateKey,
@@ -648,44 +660,55 @@ object PEMUtils {
     encryptionAlgorithm: EncryptionAlgorithm = EncryptionAlgorithm.AES_256_CBC,
     format: String = "PKCS#8"  // Default to PKCS#8 format
   ): String {
-    // Check if the key is from the Android Keystore
+    // Ensure that Android Keystore keys are not allowed to be extracted
     require(!privateKey.isFromAndroidKeyStore()) { "Android Keystore keys cannot be extracted into PEM." }
+    require(format == "PKCS#1" || format == "PKCS#8" || format == "PKCS1" || format == "PKCS8") { "Unsupported format: $format" }
 
-    // Create a writer for the PEM output
+    // Prepare a StringWriter to hold the PEM output
     val writer = StringWriter()
     val pemWriter = JcaPEMWriter(writer)
 
-    // If a passphrase is provided, encrypt the private key
+    // If a passphrase is provided, the private key will be encrypted
     if (passphrase != null && passphrase.isNotEmpty()) {
-      // Configure the encryptor with the selected encryption algorithm
+      // Configure the encryption builder with the provided algorithm and passphrase
       val encryptorBuilder = JceOpenSSLPKCS8EncryptorBuilder(encryptionAlgorithm.oid)
         .setPassword(passphrase)
+
+      // Build the encryptor
       val encryptor: OutputEncryptor = encryptorBuilder.build()
 
-      // Create the appropriate generator based on the format
-      val generator = when (format) {
-        "PKCS1", "PKCS#1" -> throw IllegalArgumentException("Encryption for PKCS#1 format is not supported.") // PKCS#1 does not support encrypted private keys
-        "PKCS8", "PKCS#8" -> JcaPKCS8Generator(privateKey, encryptor)  // Use PKCS#8 generator for encryption
-        else -> throw IllegalArgumentException("Unsupported format: $format")
+      // Handle the key format for encryption
+      if (format == "PKCS#1" || format == "PKCS1") {
+        throw IllegalArgumentException("Encryption for PKCS#1 format is not supported.")
       }
 
-      // Write the encrypted private key
+      val generator = JcaPKCS8Generator(privateKey, encryptor)
+
+      // Write the encrypted private key to the PEM writer
       pemWriter.writeObject(generator)
     } else {
-      // If no passphrase is provided, write the unencrypted private key based on the format
+      // If no passphrase is provided, handle unencrypted PEM export
       when (format) {
-        "PKCS1", "PKCS#1" -> {
+        "PKCS#1", "PKCS1" -> {
+          // Ensure the private key is an RSA key (PKCS#1 is RSA-specific)
           require(privateKey.algorithm == "RSA") { "PKCS#1 format only supports RSA keys." }
-          // Ensure the PrivateKey is a RSAPrivateCrtKey
-          require(privateKey is RSAPrivateCrtKey) { "PKCS#1 format only supports RSAPrivateCrtKey keys." }
+          require(privateKey is RSAPrivateCrtKey) { "PKCS#1 format requires an RSAPrivateCrtKey." }
+          // Convert and write the private key in PKCS#1 format
           pemWriter.writeObject(convertToPKCS1(privateKey))
-        } // Convert to PKCS#1
-        "PKCS8", "PKCS#8" -> pemWriter.writeObject(privateKey) // Use the default PKCS#8 format
-        else -> throw IllegalArgumentException("Unsupported format: $format")
+        }
+        "PKCS#8", "PKCS8" -> {
+          // Ensure elliptic curve keys contain parameters before export
+          if (privateKey.algorithm == "EC") {
+            val ecPrivateKey = privateKey as ECPrivateKey
+            val ecParams = ecPrivateKey.params
+            requireNotNull(ecParams) { "Elliptic curve parameters are missing from the key." }
+          }
+          val generator = JcaPKCS8Generator(privateKey, null)
+          pemWriter.writeObject(generator)
+        }
       }
     }
-
-    // Close the writer and return the PEM string
+    // Close the writer and return the PEM output as a string
     pemWriter.close()
     return writer.toString()
   }
@@ -847,59 +870,167 @@ object PEMUtils {
    *
    * @return A list of parsed `PrivateKey` objects.
    *
-   * @throws InvalidPrivateKeyPemException If the private key PEM is invalid or decryption fails.
+   * @throws InvalidPrivateKeyPemException If the private key PEM is invalid, unsupported, or decryption fails.
    */
   @JvmStatic
   @Throws(InvalidPrivateKeyPemException::class)
   fun parsePrivateKeyPem(privateKeyPem: String, passphrase: CharArray? = null): List<PrivateKey> {
+    // Ensure the provided PEM string is not blank
     require(privateKeyPem.isNotBlank()) { "Private key PEM cannot be empty." }
 
-    val privateKeys = mutableListOf<PrivateKey>()
+    val privateKeys = mutableListOf<PrivateKey>() // List to hold parsed private keys
 
     try {
+      // Initialize PEM parser and key converter with the BouncyCastle provider
       val reader = StringReader(privateKeyPem)
       val pemParser = PEMParser(reader)
       val converter = JcaPEMKeyConverter()
-        // Must set provider here to support various key types
         .setProvider(BouncyCastleProvider())
 
       var obj: Any?
+
+      // Continuously read objects from the PEM file until none are left
       while (true) {
         obj = pemParser.readObject() ?: break
 
-        // Handle encrypted keys
+        // Handle encrypted private keys
         when (obj) {
           is PEMEncryptedKeyPair -> {
-            if (passphrase == null) {
-              throw InvalidPrivateKeyPemException("Passphrase required to decrypt the private key.")
-            }
+            // Handle decryption for encrypted keys
             val decryptorProvider = JcePEMDecryptorProviderBuilder().build(passphrase)
             val keyPair = obj.decryptKeyPair(decryptorProvider)
-            privateKeys.add(converter.getKeyPair(keyPair).private)
+            val privateKey = converter.getKeyPair(keyPair).private
+
+            // Check for elliptic curve (EC) parameters
+            if (privateKey is ECPrivateKey && privateKey.params == null) {
+              throw InvalidPrivateKeyPemException("Elliptic curve parameters are missing.")
+            }
+            privateKeys.add(privateKey)
           }
-          // Handle unencrypted PEM keys
-          is PEMKeyPair -> privateKeys.add(converter.getKeyPair(obj).private)
+          is PEMKeyPair -> {
+            // Check if this is an elliptic curve key and validate the parameters
+            val algorithmParameters = obj.privateKeyInfo.privateKeyAlgorithm.parameters
+            val privateKey = if (algorithmParameters != null) {
+              val x962Params = X962Parameters.getInstance(algorithmParameters)
+              // Ensure the curve is properly initialized
+              if (!x962Params.isNamedCurve) {
+                throw InvalidKeySpecException("Elliptic curve is not a named curve or parameters are missing.")
+              }
+              converter.getPrivateKey(obj.privateKeyInfo)
+            } else {
+              convertPrivateKeyInfoToPrivateKey(obj.privateKeyInfo)
+            }
+            privateKeys.add(privateKey)
+          }
           is PrivateKeyInfo -> {
             try {
-              privateKeys.add(converter.getPrivateKey(obj))
-            } catch (e: Exception) {
-              throw InvalidPrivateKeyPemException(
-                "Failed to convert PrivateKeyInfo to PrivateKey: ${e.message}.",
-                e
-              )
+              val privateKey = converter.getPrivateKey(obj)
+              privateKeys.add(privateKey)
+            } catch (e: InvalidKeySpecException) {
+              throw InvalidPrivateKeyPemException("Failed to convert PrivateKeyInfo to PrivateKey: ${e.message}.", e)
             }
           }
-
           else -> throw InvalidPrivateKeyPemException("Unsupported key format or invalid key content.")
         }
       }
     } catch (e: Exception) {
+      // Catch and wrap any parsing or decryption exceptions
       throw InvalidPrivateKeyPemException("Failed to parse private key: ${e.message}.", e)
     }
 
-    return privateKeys
+    return privateKeys // Return the list of parsed private keys
   }
 
+  /**
+   * Converts a given `PrivateKeyInfo` object to a `PrivateKey`.
+   *
+   * This method handles elliptic curve (EC) private keys, specifically ensuring that the necessary curve
+   * parameters are available. If the curve parameters are missing from the provided `PrivateKeyInfo`,
+   * the method attempts to infer them using the elliptic curve OID. If the curve parameters cannot be
+   * inferred or the OID represents a generic elliptic curve algorithm (`1.2.840.10045.2.1`), an exception
+   * is thrown.
+   *
+   * @param privateKeyInfo The `PrivateKeyInfo` object representing the key to be converted.
+   * @return The corresponding `PrivateKey` object.
+   * @throws InvalidKeySpecException If the elliptic curve parameters are missing or cannot be inferred,
+   *                                 or if the curve is not recognized.
+   */
+  fun convertPrivateKeyInfoToPrivateKey(privateKeyInfo: PrivateKeyInfo): PrivateKey {
+    // Create a key converter with the BouncyCastle provider for EC key handling
+    val keyConverter = JcaPEMKeyConverter().setProvider(BouncyCastleProvider())
+
+    // Extract the algorithm parameters from the `PrivateKeyInfo` object
+    val algorithmParameters = privateKeyInfo.privateKeyAlgorithm.parameters
+
+    // Handle cases where elliptic curve parameters are missing
+    val x962Params = if (algorithmParameters == null) {
+      // Attempt to extract the curve OID from the algorithm identifier
+      val curveOid = privateKeyInfo.privateKeyAlgorithm.algorithm
+        ?: throw InvalidKeySpecException("Elliptic curve parameters are missing, and the curve cannot be inferred.")
+
+      // Check if the OID is the generic EC public key OID (1.2.840.10045.2.1)
+      if (curveOid.id == "1.2.840.10045.2.1") {
+        throw InvalidKeySpecException("Unable to determine elliptic curve parameters for generic EC OID: $curveOid. Specific curve OID is required.")
+      }
+
+      // Retrieve the elliptic curve parameters using the OID
+      val ecParams: X9ECParameters = ECNamedCurveTable.getByOID(curveOid)
+        ?: throw InvalidKeySpecException("Unable to determine elliptic curve parameters for OID: $curveOid")
+
+      // Rebuild elliptic curve parameters based on the identified curve
+      X962Parameters(ecParams)
+    } else {
+      // If parameters are present, extract them as X962Parameters
+      X962Parameters.getInstance(algorithmParameters)
+    }
+
+    // Ensure that the curve is a named curve; otherwise, throw an exception
+    if (!x962Params.isNamedCurve) {
+      throw InvalidKeySpecException("Elliptic curve is not a named curve or parameters are missing.")
+    }
+
+    // Create a new `AlgorithmIdentifier` with the correct elliptic curve parameters
+    val updatedAlgorithmId = AlgorithmIdentifier(
+      privateKeyInfo.privateKeyAlgorithm.algorithm, // Keep the original algorithm OID
+      x962Params // Insert the corrected or inferred curve parameters
+    )
+
+    // Rebuild the `PrivateKeyInfo` with the updated algorithm identifier and private key data
+    val updatedPrivateKeyInfo = PrivateKeyInfo(
+      updatedAlgorithmId,
+      privateKeyInfo.parsePrivateKey() // Parse the private key bytes
+    )
+
+    // Convert the updated `PrivateKeyInfo` to a `PrivateKey` using the converter
+    return keyConverter.getPrivateKey(updatedPrivateKeyInfo)
+  }
+
+  /**
+   * Detects and retrieves the name of the elliptic curve from the PrivateKeyInfo.
+   *
+   * @param privateKeyInfo The PrivateKeyInfo object containing the elliptic curve private key.
+   *
+   * @return The name of the elliptic curve (e.g., secp256r1) if it's a named curve, or null if not.
+   *
+   * @throws InvalidKeySpecException if the elliptic curve is not a named curve or if the parameters are invalid.
+   */
+  fun detectCurveName(privateKeyInfo: PrivateKeyInfo): String? {
+    // Extract the algorithm parameters from the PrivateKeyInfo (this contains curve parameters for EC keys)
+    val algorithmParameters = privateKeyInfo.privateKeyAlgorithm.parameters
+    val x962Params = X962Parameters.getInstance(algorithmParameters)
+
+    // Check if the elliptic curve is a named curve
+    if (x962Params.isNamedCurve) {
+      // Get the curve identifier (ASN.1 Object Identifier)
+      val curveOid = ASN1ObjectIdentifier.getInstance(x962Params.parameters)
+
+      // Look up the curve name using the OID in the ECNamedCurveTable
+      return ECNamedCurveTable.getName(curveOid)
+    } else {
+      // The curve is not a named curve, return null or throw an exception if needed
+      throw InvalidKeySpecException("Elliptic curve is not a named curve.")
+    }
+  }
 
   /**
    * Parses PEM-formatted public keys.
@@ -926,7 +1057,20 @@ object PEMUtils {
 
         // Read and accumulate public key objects from the PEM
         when (obj) {
-          is PEMKeyPair -> publicKeys.add(converter.getKeyPair(obj).public) // Handle PEMKeyPair (though not typical for public keys)
+          is PEMKeyPair -> {
+            val publicKey: PublicKey = if (obj.privateKeyInfo != null && obj.publicKeyInfo != null) {
+              val keyPair = converter.getKeyPair(obj)
+              keyPair.public
+            } else {
+              val publicKeyInfo = obj.publicKeyInfo
+              if (publicKeyInfo != null) {
+                converter.getPublicKey(publicKeyInfo)
+              } else {
+                throw IllegalArgumentException("No public key data found in PrivateKeyInfo")
+              }
+            }
+            publicKeys.add(publicKey)
+          } // Handle PEMKeyPair (though not typical for public keys)
           is SubjectPublicKeyInfo -> publicKeys.add(converter.getPublicKey(obj)) // Handle SubjectPublicKeyInfo
           else -> throw InvalidPublicKeyPemException("Unsupported key format or invalid key content.")
         }
@@ -956,11 +1100,13 @@ object PEMUtils {
         val openSSHPemObject = convertRSAToOpenSSH(privateKey)
         pemWriter.writeObject(openSSHPemObject)
       }
+
       is ECPrivateKey -> {
         // ECDSA Private Key in OpenSSH format
         val openSSHPemObject = convertECToOpenSSH(privateKey)
         pemWriter.writeObject(openSSHPemObject)
       }
+
       else -> throw IllegalArgumentException("Unsupported key type: ${privateKey.algorithm}")
     }
 
@@ -998,10 +1144,12 @@ object PEMUtils {
         val openSSHPemObject = convertRSAToOpenSSH(publicKey)
         pemWriter.writeObject(openSSHPemObject)
       }
+
       is ECPublicKey -> {
         val openSSHPemObject = convertECToOpenSSH(publicKey)
         pemWriter.writeObject(openSSHPemObject)
       }
+
       else -> throw IllegalArgumentException("Unsupported key type: ${publicKey.algorithm}")
     }
 
@@ -1101,5 +1249,11 @@ object PEMUtils {
     pemWriter.close()
 
     return writer.toString()
+  }
+
+  fun ensureBouncyCastleProvider() {
+    if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+      Security.addProvider(BouncyCastleProvider())
+    }
   }
 }

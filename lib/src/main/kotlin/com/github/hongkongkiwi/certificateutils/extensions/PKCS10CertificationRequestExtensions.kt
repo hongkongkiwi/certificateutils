@@ -127,7 +127,7 @@ fun PKCS10CertificationRequest.isRsaKey(): Boolean {
  *
  * @return True if the CSR's key is EC, false otherwise.
  */
-fun PKCS10CertificationRequest.isEcKey(): Boolean {
+fun PKCS10CertificationRequest.isEcOrEcdsa(): Boolean {
   // Extract the PublicKey from the CSR using JcaPEMKeyConverter
   val publicKey: PublicKey = JcaPEMKeyConverter().getPublicKey(this.subjectPublicKeyInfo)
 

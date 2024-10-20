@@ -1,9 +1,9 @@
 package com.github.hongkongkiwi.certificateutils.extensions
 
 import com.github.hongkongkiwi.certificateutils.AndroidKeyStoreUtils
-import com.github.hongkongkiwi.certificateutils.CertificateUtils
 import com.github.hongkongkiwi.certificateutils.KeyUtils
 import com.github.hongkongkiwi.certificateutils.PEMUtils
+import com.github.hongkongkiwi.certificateutils.enums.CryptographicAlgorithm
 import com.github.hongkongkiwi.certificateutils.exceptions.AndroidKeyStoreException
 import com.github.hongkongkiwi.certificateutils.enums.ECCurve
 import java.nio.charset.Charset
@@ -35,7 +35,7 @@ fun PrivateKey.getAlgorithmName(): String {
  *
  * @return The name of the elliptic curve as a String, or null if the private key is not an ECPrivateKey.
  */
-fun PrivateKey.getCurveName(): ECCurve? {
+fun PrivateKey.getCurveName(): String? {
   return when (this) {
     is ECPrivateKey -> {
       // Use the existing getCurveName method in CertificateUtils
@@ -60,8 +60,8 @@ fun PrivateKey.isFromAndroidKeyStore(): Boolean {
  * @param passphrase Optional passphrase for encrypted keys.
  * @return The PEM formatted string representation of the PrivateKey.
  */
-fun PrivateKey.toPem(passphrase: CharArray? = null): String {
-  return PEMUtils.getPrivateKeyPem(this, passphrase)
+fun PrivateKey.toPem(format: String = "PKCS#8", passphrase: CharArray? = null): String {
+  return PEMUtils.getPrivateKeyPem(this, format = format, passphrase = passphrase)
 }
 
 /**
@@ -71,7 +71,7 @@ fun PrivateKey.toPem(passphrase: CharArray? = null): String {
  * @return A PEM formatted string representation of the private keys.
  */
 fun List<PrivateKey>.toPem(passphrase: CharArray? = null): String {
-  return this.joinToString("\n") { it.toPem(passphrase) }
+  return this.joinToString("\n") { it.toPem(format = "PKCS#8", passphrase) }
 }
 
 /**
@@ -110,6 +110,10 @@ fun PrivateKey.getPublicKey(): PublicKey {
   return KeyUtils.getPublicKey(this)
 }
 
+fun PrivateKey.testSigning(publicKey: PublicKey): Boolean {
+  return KeyUtils.isPublicKeyMatchingPrivateKey(this, publicKey)
+}
+
 /**
  * Checks if the provided PublicKey matches the generated PublicKey from the PrivateKey.
  *
@@ -124,7 +128,11 @@ fun PrivateKey.matchesPublicKey(publicKey: PublicKey): Boolean {
   }
 
   // Generate PublicKey from the PrivateKey
-  val keyFactory = KeyFactory.getInstance(this.algorithm)
+  val keyFactoryAlgorithm = when (this.algorithm) {
+    "ECDSA" -> "EC"
+    else -> this.algorithm
+  }
+  val keyFactory = KeyFactory.getInstance(keyFactoryAlgorithm)
   val derivedPublicKeySpec = X509EncodedKeySpec(publicKey.encoded)
   val derivedPublicKey = keyFactory.generatePublic(derivedPublicKeySpec)
 
@@ -146,8 +154,8 @@ fun PrivateKey.isRsaKey(): Boolean {
  *
  * @return True if the PrivateKey is EC, false otherwise.
  */
-fun PrivateKey.isEcKey(): Boolean {
-  return this.algorithm.equals("EC", ignoreCase = true)
+fun PrivateKey.isEcOrEcdsa(): Boolean {
+  return CryptographicAlgorithm.EC.matches(this.algorithm) || CryptographicAlgorithm.ECDSA.matches(this.algorithm)
 }
 
 /**
@@ -189,7 +197,7 @@ fun PrivateKey.getKeyLength(): Int? {
  * @return True if the PrivateKey is suitable for signing, false otherwise.
  */
 fun PrivateKey.isSuitableForSigning(): Boolean {
-  return this.isRsaKey() || this.isEcKey() || this.isDsaKey() || this.isEdDsaKey() // Suitable for signing
+  return this.isRsaKey() || this.isEcOrEcdsa() || this.isDsaKey() || this.isEdDsaKey() // Suitable for signing
 }
 
 /**

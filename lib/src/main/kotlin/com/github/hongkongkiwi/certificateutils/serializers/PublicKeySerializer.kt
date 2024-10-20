@@ -26,7 +26,9 @@ class PublicKeySerializer : KSerializer<PublicKey> {
       if (value.isFromAndroidKeyStore()) {
         val alias = value.getAndroidKeyStoreAlias()
           ?: throw KeyStoreException("Alias is missing for the PublicKey from the Android Keystore.")
-        encoder.encodeString(alias)
+        val startMarker = AndroidKeyStoreUtils.KEYSTORE_ALIAS_MARKERS.first
+        val endMarker = AndroidKeyStoreUtils.KEYSTORE_ALIAS_MARKERS.second
+        encoder.encodeString("${startMarker}${alias}${endMarker}")
       } else {
         when (value.format) {
           "X.509" -> encoder.encodeString(PEMUtils.getPublicKeyPem(value, format = "X.509"))

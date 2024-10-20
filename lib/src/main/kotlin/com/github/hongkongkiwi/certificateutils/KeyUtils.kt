@@ -4,15 +4,22 @@ import android.annotation.SuppressLint
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Log
+import com.github.hongkongkiwi.certificateutils.CertificateUtils.ensureBouncyCastleProvider
 import com.github.hongkongkiwi.certificateutils.enums.CryptographicAlgorithm
 import com.github.hongkongkiwi.certificateutils.enums.ECCurve
 import com.github.hongkongkiwi.certificateutils.exceptions.UnsupportedKeyAlgorithmException
 import com.github.hongkongkiwi.certificateutils.extensions.isFromAndroidKeyStore
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
+import org.bouncycastle.jcajce.provider.asymmetric.util.EC5Util
 import org.bouncycastle.jce.ECNamedCurveTable
+import org.bouncycastle.jce.ECPointUtil
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.bouncycastle.jce.spec.ECNamedCurveParameterSpec
 import org.bouncycastle.jce.spec.ECNamedCurveSpec
 import org.bouncycastle.openssl.PKCS8Generator
+import org.bouncycastle.jce.spec.ECParameterSpec as BCECParameterSpec
+import org.bouncycastle.math.ec.ECPoint as BCECPoint
 import java.math.BigInteger
 import java.security.InvalidAlgorithmParameterException
 import java.security.KeyFactory
@@ -26,6 +33,7 @@ import java.security.PrivateKey
 import java.security.PublicKey
 import java.security.SecureRandom
 import java.security.Security
+import java.security.Signature
 import java.security.UnrecoverableEntryException
 import java.security.interfaces.DSAPrivateKey
 import java.security.interfaces.ECPrivateKey
@@ -35,6 +43,7 @@ import java.security.spec.DSAPublicKeySpec
 import java.security.spec.ECGenParameterSpec
 import java.security.spec.ECParameterSpec
 import java.security.spec.ECPoint
+import java.security.spec.ECPrivateKeySpec
 import java.security.spec.ECPublicKeySpec
 import java.security.spec.RSAPublicKeySpec
 import java.util.Locale
@@ -63,7 +72,9 @@ object KeyUtils {
   fun getPublicKey(privateKey: PrivateKey): PublicKey {
     return when (privateKey.algorithm) {
       CryptographicAlgorithm.RSA.name -> getRSAPublicKey(privateKey)
-      CryptographicAlgorithm.EC.name -> getECPublicKey(privateKey)
+      CryptographicAlgorithm.EC.name,
+      CryptographicAlgorithm.ECDSA.name -> getECPublicKey(privateKey)
+
       CryptographicAlgorithm.DSA.name -> getDSAPublicKey(privateKey)
       CryptographicAlgorithm.Ed25519.name -> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
@@ -88,7 +99,6 @@ object KeyUtils {
       }
 
       CryptographicAlgorithm.DH.name -> getDHPublicKey(privateKey)
-      CryptographicAlgorithm.ECDSA.name -> getECPublicKey(privateKey) // ECDSA is based on EC
       else -> {
         // Handle unsupported algorithms for lower Android versions
         throw UnsupportedKeyAlgorithmException("${privateKey.algorithm} is not supported on this Android version.")
@@ -114,23 +124,25 @@ object KeyUtils {
   )
   fun generateKeyPairRSA(
     keySize: Int = 2048, // Default to RSA 2048
+    secureRandom: SecureRandom = SecureRandom()
   ): KeyPair {
     require(keySize in 1024..4096) { "RSA key size must be between 1024 and 4096 bits." }
 
     // Generate a normal RSA key pair with a customizable key size
     val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
-    keyPairGenerator.initialize(keySize, SecureRandom())
+    keyPairGenerator.initialize(keySize, secureRandom)
     return keyPairGenerator.generateKeyPair()
   }
 
   /**
-   * Generates an EC key pair. If `keystoreAlias` is provided, the keys are stored in the Android Keystore.
+   * Generates an EC key pair. If a `keystoreAlias` is provided, the keys are stored in the Android Keystore.
    *
    * @param ecCurve The elliptic curve to use (default is SECP256R1).
+   * @param secureRandom An optional instance of `SecureRandom` for key generation (default is a new instance).
    * @return The generated EC key pair (public and private keys).
    * @throws NoSuchAlgorithmException If the EC algorithm is not available.
    * @throws NoSuchProviderException If the Android Keystore provider is not available.
-   * @throws InvalidAlgorithmParameterException If the KeyGenParameterSpec is invalid.
+   * @throws InvalidAlgorithmParameterException If the EC curve parameters are invalid.
    */
   @JvmStatic
   @Throws(
@@ -140,11 +152,16 @@ object KeyUtils {
   )
   fun generateKeyPairEC(
     ecCurve: ECCurve = ECCurve.SECP256R1,
+    secureRandom: SecureRandom = SecureRandom()
   ): KeyPair {
-    // Generate a normal EC key pair
+    // Get instance of KeyPairGenerator for the EC algorithm
     val keyPairGenerator = KeyPairGenerator.getInstance("EC")
+
+    // Initialize the key pair generator with the specified elliptic curve
     val ecSpec = ECGenParameterSpec(ecCurve.toString())
-    keyPairGenerator.initialize(ecSpec, SecureRandom())
+    keyPairGenerator.initialize(ecSpec, secureRandom)
+
+    // Generate and return the EC key pair
     return keyPairGenerator.generateKeyPair()
   }
 
@@ -208,13 +225,14 @@ object KeyUtils {
   )
   fun generateKeyPairDSA(
     keySize: Int = 2048,
+    secureRandom: SecureRandom = SecureRandom()
   ): KeyPair {
     require(keySize in 1024..3072) { "DSA key size must be between 1024 and 3072 bits." }
     require(keySize % 64 == 0) { "DSA key size must be a multiple of 64." }
 
     // Generate a normal DSA private key outside of the Keystore
     val keyPairGenerator = KeyPairGenerator.getInstance("DSA")
-    keyPairGenerator.initialize(keySize, SecureRandom())
+    keyPairGenerator.initialize(keySize, secureRandom)
     return keyPairGenerator.generateKeyPair()
   }
 
@@ -280,13 +298,14 @@ object KeyUtils {
   @Throws(NoSuchAlgorithmException::class, UnsupportedOperationException::class)
   fun generateKeyPairDH(
     keySize: Int = 2048,
+    secureRandom: SecureRandom = SecureRandom()
   ): KeyPair {
     require(keySize in 512..2048) { "DH key size must be between 512 and 2048." }
     require(keySize % 64 == 0) { "DH key size must be a multiple of 64." }
 
     // Generate a normal DH private key
     val keyPairGenerator = KeyPairGenerator.getInstance("DH")
-    keyPairGenerator.initialize(keySize, SecureRandom())
+    keyPairGenerator.initialize(keySize, secureRandom)
     return keyPairGenerator.generateKeyPair()
   }
 
@@ -320,30 +339,17 @@ object KeyUtils {
   }
 
   /**
-   * Retrieves the standard name of the elliptic curve used in the specified EC private key.
-   *
-   * This method takes an ECPrivateKey and extracts the curve parameters associated with it.
-   * It then uses these parameters to obtain the standard curve name, which can be useful
-   * for identifying the type of elliptic curve used for cryptographic operations.
-   *
-   * @param privateKey The ECPrivateKey from which to retrieve the curve name.
-   * @return The name of the elliptic curve as a String, or null if the key is not an EC private key.
-   * @throws IllegalArgumentException If the provided private key does not contain valid curve parameters.
-   */
-  fun getCurveNameFromKey(privateKey: ECPrivateKey): ECCurve {
-    return getCurveNameFromSpec(privateKey.params)
-  }
-
-  /**
    * Retrieves the standard name of the curve used in the ECParameterSpec.
    *
    * @param paramSpec The ECParameterSpec from the private key.
    * @return The curve name as a String.
    */
-  fun getCurveNameFromSpec(paramSpec: java.security.spec.ECParameterSpec): ECCurve {
+  fun getCurveNameFromSpec(paramSpec: java.security.spec.ECParameterSpec): String {
     val namedCurves = ECNamedCurveTable.getNames()
     for (name in namedCurves) {
       val parameterSpec = ECNamedCurveTable.getParameterSpec(name as String)
+
+      // Create a curve spec from the Bouncy Castle parameters
       val curveSpec = ECNamedCurveSpec(
         name,
         parameterSpec.curve,
@@ -352,8 +358,27 @@ object KeyUtils {
         parameterSpec.h,
         parameterSpec.seed
       )
+
+      // Compare the curve spec from Bouncy Castle with the one from the private key
       if (curveEquals(curveSpec, paramSpec)) {
-        return ECCurve.fromString(name)
+        return name  // Return the curve name as a string
+      }
+    }
+    throw IllegalArgumentException("Unsupported curve parameters")
+  }
+
+  /**
+   * Retrieves the standard name of the curve used in the BCEParameterSpec.
+   *
+   * @param paramSpec The BCEParameterSpec from the private key.
+   * @return The curve name as a String.
+   */
+  fun getCurveNameFromSpec(paramSpec: BCECParameterSpec): String {
+    val namedCurves = ECNamedCurveTable.getNames()
+    for (name in namedCurves) {
+      val parameterSpec = ECNamedCurveTable.getParameterSpec(name as String)
+      if (curveEquals(parameterSpec, paramSpec)) {
+        return name
       }
     }
     throw IllegalArgumentException("Unsupported curve parameters")
@@ -384,6 +409,28 @@ object KeyUtils {
   }
 
   /**
+   * Compares two BCEParameterSpec for equality by checking the curve, generator point (G),
+   * order (n), cofactor (h), and seed.
+   *
+   * @param spec1 The first elliptic curve specification to compare, represented as ECNamedCurveParameterSpec.
+   * @param spec2 The second elliptic curve specification to compare, represented as BCECParameterSpec.
+   * @return True if both elliptic curves are equal; false otherwise.
+   */
+  private fun curveEquals(
+    spec1: ECNamedCurveParameterSpec,
+    spec2: BCECParameterSpec
+  ): Boolean {
+    val curvesEqual = spec1.curve == spec2.curve
+    val generatorsEqual = spec1.g == spec2.g
+    val ordersEqual = spec1.n == spec2.n
+    val cofactorsEqual = spec1.h == spec2.h
+    val seedsEqual = (spec1.seed == null && spec2.seed == null) ||
+      (spec1.seed != null && spec2.seed != null && spec1.seed.contentEquals(spec2.seed))
+
+    return curvesEqual && generatorsEqual && ordersEqual && cofactorsEqual && seedsEqual
+  }
+
+  /**
    * Gets the public key point for an EC private key.
    *
    * @param privateKey The EC private key.
@@ -393,7 +440,7 @@ object KeyUtils {
   private fun getECPublicKeyPoint(privateKey: PrivateKey): ECPoint {
     val algorithm = CryptographicAlgorithm.fromString(privateKey.algorithm)
     // Ensure that the provided key is indeed an ECPrivateKey
-    require(algorithm == CryptographicAlgorithm.EC) { "Provided key is not an ECPrivateKey." }
+    require(algorithm == CryptographicAlgorithm.EC || algorithm == CryptographicAlgorithm.ECDSA) { "Provided key is not an ECPrivateKey." }
     if (privateKey !is ECPrivateKey) {
       throw IllegalArgumentException("Provided key must be an ECPrivateKey")
     }
@@ -484,6 +531,7 @@ object KeyUtils {
       )
     }
   }
+
   /**
    * Retrieves the public key from a given KeyPair.
    *
@@ -613,6 +661,11 @@ object KeyUtils {
     privateKey: PrivateKey,
     keyStore: KeyStore? = null
   ): PublicKey {
+    // Ensure BouncyCastle provider is registered
+    if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+      Security.addProvider(BouncyCastleProvider())
+    }
+
     // Check if the provided key is from the Android Keystore
     if (privateKey.isFromAndroidKeyStore()) {
       // Initialize the Android Keystore
@@ -635,19 +688,75 @@ object KeyUtils {
       throw IllegalArgumentException("No public key found for the provided Android keystore private key.")
     }
 
-    // Check if the provided key is indeed an ECPrivateKey
+    // Ensure the provided key is an ECPrivateKey
     if (privateKey !is ECPrivateKey) {
       throw IllegalArgumentException("Provided key must be an ECPrivateKey")
     }
 
-    // Use the ECPrivateKey to derive the public key
-    val keyFactory = KeyFactory.getInstance("EC")
-    val publicKeyPoint = getECPublicKeyPoint(privateKey) // Implement this function
-    val publicKeySpec = ECPublicKeySpec(publicKeyPoint, privateKey.params)
+    ensureBouncyCastleProvider()
+
+    // Obtain the scalar (private key value)
+    val s: BigInteger = privateKey.s
+
+    // Get the curve name from the private key parameters
+    val curveName = getCurveNameFromSpec(privateKey.params)
+      ?: throw IllegalArgumentException("Unsupported curve parameters")
+
+    // Load the curve parameters using Bouncy Castle
+    val parameterSpec = ECNamedCurveTable.getParameterSpec(curveName)
+
+    // Perform scalar multiplication using Bouncy Castle's ECPoint
+    val q: org.bouncycastle.math.ec.ECPoint = parameterSpec.g.multiply(s).normalize()
+
+    // Extract affine coordinates
+    val xCoord = q.affineXCoord.toBigInteger()
+    val yCoord = q.affineYCoord.toBigInteger()
+
+    // Create the public key point
+    val w = ECPoint(xCoord, yCoord)
+
+    // Create the ECParameterSpec for the public key
+    val ecSpec = ECParameterSpec(
+      privateKey.params.curve,
+      privateKey.params.generator,
+      privateKey.params.order,
+      privateKey.params.cofactor
+    )
+
+    // Create the public key specification
+    val publicKeySpec = ECPublicKeySpec(w, ecSpec)
 
     // Generate and return the public key
-    return keyFactory.generatePublic(publicKeySpec)
+    val keyFactory = KeyFactory.getInstance("EC")
+    return keyFactory.generatePublic(publicKeySpec) as ECPublicKey
   }
+
+//  fun getCurveNameFromSpec(paramSpec: ECParameterSpec): String? {
+//    val namedCurves = ECNamedCurveTable.getNames()
+//    for (name in namedCurves) {
+//      val parameterSpec = ECNamedCurveTable.getParameterSpec(name as String)
+//      val curveSpec = org.bouncycastle.jce.spec.ECNamedCurveSpec(
+//        name,
+//        parameterSpec.curve,
+//        parameterSpec.g,
+//        parameterSpec.n,
+//        parameterSpec.h,
+//        parameterSpec.seed
+//      )
+//      if (curveEquals(curveSpec, paramSpec)) {
+//        return name
+//      }
+//    }
+//    return null
+//  }
+
+  fun curveEquals(spec1: ECParameterSpec, spec2: ECParameterSpec): Boolean {
+    return spec1.curve == spec2.curve &&
+      spec1.generator == spec2.generator &&
+      spec1.order == spec2.order &&
+      spec1.cofactor == spec2.cofactor
+  }
+
 
   /**
    * Gets the public key for RSA algorithms.
@@ -830,12 +939,13 @@ object KeyUtils {
   )
   fun generateSecretKeyAES(
     keySize: Int = 256, // Default to a strong AES encryption value
+    secureRandom: SecureRandom = SecureRandom()
   ): SecretKey {
     require(keySize == 128 || keySize == 192 || keySize == 256) { "AES key size must be 128, 192, or 256 bits." }
 
     // Generate a normal AES key
     val keyGen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES)
-    keyGen.init(keySize, SecureRandom())
+    keyGen.init(keySize, secureRandom)
     return keyGen.generateKey()
   }
 
@@ -907,4 +1017,46 @@ object KeyUtils {
     }
   }
 
+  fun getSupportedSignatureAlgorithms(): List<Pair<String, String>> {
+    val supportedAlgorithms = mutableListOf<Pair<String, String>>()
+    Security.getProviders().forEach { provider ->
+      provider.services.filter { it.type == "Signature" }.forEach {
+        supportedAlgorithms.add(Pair(provider.name, it.algorithm))
+      }
+    }
+    return supportedAlgorithms
+  }
+
+  fun isPublicKeyMatchingPrivateKey(privateKey: PrivateKey, publicKey: PublicKey): Boolean {
+    return try {
+      // Create a simple piece of data to sign and verify
+      val testData = "abc123".toByteArray()
+
+      // Sign the data with the private key
+      val signatureAlgorithm = when (privateKey.algorithm) {
+        "EC", "ECDSA" -> "SHA256withECDSA"
+        "RSA" -> "SHA256withRSA"
+        else -> throw IllegalArgumentException("Unsupported key algorithm: ${privateKey.algorithm}")
+      }
+
+      // Create a signature object for signing
+      val signer = Signature.getInstance(signatureAlgorithm)
+      signer.initSign(privateKey)
+      signer.update(testData)
+      val signature = signer.sign()
+
+      // Verify the signature with the public key
+      val verifier = Signature.getInstance(signatureAlgorithm)
+      verifier.initVerify(publicKey)
+      verifier.update(testData)
+
+      val verified = verifier.verify(signature)
+
+      // Check if verification succeeds
+      verified
+    } catch (e: Exception) {
+      Log.e(TAG, "Error verifying signature", e)
+      false
+    }
+  }
 }

@@ -63,7 +63,7 @@ fun PublicKey.isRsaKey(): Boolean {
  *
  * @return True if the PublicKey is EC, false otherwise.
  */
-fun PublicKey.isEcKey(): Boolean {
+fun PublicKey.isEcOrEcdsa(): Boolean {
   return this.algorithm.equals("EC", ignoreCase = true)
 }
 

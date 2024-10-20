@@ -1,7 +1,16 @@
 package com.github.hongkongkiwi.certificateutils.extensions
 
+import com.github.hongkongkiwi.certificateutils.AndroidKeyStoreUtils
 import com.github.hongkongkiwi.certificateutils.CertificateUtils
 import com.github.hongkongkiwi.certificateutils.PEMUtils
+import com.github.hongkongkiwi.certificateutils.PEMUtils.DH_ENCRYPTED_PRIVATE_KEY_MARKERS
+import com.github.hongkongkiwi.certificateutils.PEMUtils.DSA_ENCRYPTED_PRIVATE_KEY_MARKERS
+import com.github.hongkongkiwi.certificateutils.PEMUtils.EC_ENCRYPTED_PRIVATE_KEY_MARKERS
+import com.github.hongkongkiwi.certificateutils.PEMUtils.ED25519_ENCRYPTED_PRIVATE_KEY_MARKERS
+import com.github.hongkongkiwi.certificateutils.PEMUtils.ED448_ENCRYPTED_PRIVATE_KEY_MARKERS
+import com.github.hongkongkiwi.certificateutils.PEMUtils.GENERIC_ENCRYPTED_PRIVATE_KEY_MARKERS
+import com.github.hongkongkiwi.certificateutils.PEMUtils.RSA_ENCRYPTED_PRIVATE_KEY_MARKERS
+import com.github.hongkongkiwi.certificateutils.PEMUtils.X25519_ENCRYPTED_PRIVATE_KEY_MARKERS
 import org.bouncycastle.pkcs.PKCS10CertificationRequest
 import java.security.PrivateKey
 import java.security.PublicKey
@@ -31,6 +40,32 @@ fun String.isPrivateKeyPem(): Boolean {
     this.contains(PEMUtils.ED448_PRIVATE_KEY_MARKERS.first) ||
     this.contains(PEMUtils.X25519_PRIVATE_KEY_MARKERS.first) ||
     this.contains(PEMUtils.DH_PRIVATE_KEY_MARKERS.first)
+}
+
+/**
+ * Checks if the string is in PEM format for a private key.
+ *
+ * @return True if the string contains any known private key markers, false otherwise.
+ */
+fun String.isEncryptedPrivateKeyPem(): Boolean {
+  return this.contains(PEMUtils.GENERIC_ENCRYPTED_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.EC_ENCRYPTED_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.RSA_ENCRYPTED_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.DSA_ENCRYPTED_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.ED25519_ENCRYPTED_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.ED448_ENCRYPTED_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.X25519_ENCRYPTED_PRIVATE_KEY_MARKERS.first) ||
+    this.contains(PEMUtils.DH_ENCRYPTED_PRIVATE_KEY_MARKERS.first)
+}
+
+/**
+ * Checks if the string has keystore alias PEM markers.
+ * This is a simple custom format that was just made up to store a PEM style marker and keystore alias name.
+ *
+ * @return True if the string contains any known keystore alias markers, false otherwise.
+ */
+fun String.isKeyStorePem(): Boolean {
+  return this.contains(AndroidKeyStoreUtils.KEYSTORE_ALIAS_MARKERS.first) && this.contains(AndroidKeyStoreUtils.KEYSTORE_ALIAS_MARKERS.second)
 }
 
 /**
@@ -140,8 +175,8 @@ fun String.toPKCS10CertificationRequests(): List<PKCS10CertificationRequest> {
  *
  * @return The parsed PrivateKey.
  */
-fun String.toPrivateKey(): PrivateKey {
-  return PEMUtils.parsePrivateKeyPem(this).first()
+fun String.toPrivateKey(passphrase: CharArray? = null): PrivateKey {
+  return PEMUtils.parsePrivateKeyPem(this, passphrase).first()
 }
 
 /**
@@ -149,8 +184,8 @@ fun String.toPrivateKey(): PrivateKey {
  *
  * @return A list of parsed PrivateKeys.
  */
-fun String.toPrivateKeys(): List<PrivateKey> {
-  return PEMUtils.parsePrivateKeyPem(this)
+fun String.toPrivateKeys(passphrase: CharArray? = null): List<PrivateKey> {
+  return PEMUtils.parsePrivateKeyPem(this, passphrase)
 }
 
 /**
